@@ -1,9 +1,12 @@
 import { spawn, ChildProcess } from 'child_process';
 import { promises as fs } from 'fs';
+import * as fss from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import axios from 'axios';
 import { Logger } from './logger.js';
+import { getHiddenProcessSpawnOptions, getAppDataDir } from './utils/platform.js';
+import { detectComfyUIInstallation, isValidComfyUIPath, getDefaultPythonCommand as getComfyUIPythonCommand } from './utils/comfyui-paths.js';
 
 export interface ComfyUIWorkflowInput {
   prompt: string;
@@ -45,17 +48,22 @@ export class ComfyUIClient {
   private process?: ChildProcess | undefined;
   private baseUrl: string;
   private clientId: string;
+  private logStream?: fss.WriteStream | undefined;
 
   constructor(options: { logger: Logger; config?: Partial<ComfyUIConfig> }) {
     this.logger = options.logger.child({ component: 'ComfyUIClient' });
     this.clientId = `ai-maps-server-${Date.now()}`;
 
     // ComfyUI always runs locally on the same machine as the MCP server
+    // Try to detect existing installation, fall back to default path
+    const detectedPath = detectComfyUIInstallation();
+    const defaultPython = getComfyUIPythonCommand();
+
     this.config = {
-      installPath: this.getDefaultInstallPath(),
+      installPath: detectedPath || this.getDefaultInstallPath(),
       host: '127.0.0.1',
       port: 31411,
-      pythonCommand: 'python',
+      pythonCommand: defaultPython,
       autoStart: true,
       ...options.config
     };
@@ -65,16 +73,14 @@ export class ComfyUIClient {
     this.logger.info('ComfyUI client initialized', {
       baseUrl: this.baseUrl,
       installPath: this.config.installPath,
+      detected: !!detectedPath,
       clientId: this.clientId
     });
   }
 
   private getDefaultInstallPath(): string {
-    // Nested inside foundry-mcp-server directory
-    return path.join(
-      os.homedir(),
-      'AppData', 'Local', 'FoundryMCPServer', 'foundry-mcp-server', 'ComfyUI-headless'
-    );
+    // Use cross-platform app data directory
+    return path.join(getAppDataDir(), 'foundry-mcp-server', 'ComfyUI-headless');
   }
 
   async checkInstallation(): Promise<boolean> {
@@ -82,19 +88,17 @@ export class ComfyUIClient {
       return false;
     }
 
-    try {
-      const mainPyPath = path.join(this.config.installPath, 'main.py');
-      await fs.access(mainPyPath);
+    const valid = isValidComfyUIPath(this.config.installPath);
 
-      this.logger.debug('ComfyUI installation found', { path: mainPyPath });
-      return true;
-    } catch (error) {
+    if (valid) {
+      this.logger.debug('ComfyUI installation found', { path: this.config.installPath });
+    } else {
       this.logger.warn('ComfyUI installation not found', {
-        expectedPath: this.config.installPath,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        expectedPath: this.config.installPath
       });
-      return false;
     }
+
+    return valid;
   }
 
   async checkHealth(): Promise<ComfyUIHealthInfo> {
@@ -171,6 +175,12 @@ export class ComfyUIClient {
 
     const mainPyPath = path.join(this.config.installPath!, 'main.py');
 
+    // Create log file for ComfyUI output (keeps process hidden on all platforms)
+    const logPath = path.join(getAppDataDir(), 'comfyui.log');
+    this.logStream = fss.createWriteStream(logPath, { flags: 'a' });
+
+    const spawnOptions = getHiddenProcessSpawnOptions();
+
     this.process = spawn(this.config.pythonCommand, [
       mainPyPath,
       '--port', this.config.port.toString(),
@@ -179,14 +189,17 @@ export class ComfyUIClient {
       '--dont-print-server'
     ], {
       cwd: this.config.installPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-      windowsHide: true,
+      ...spawnOptions,
       env: {
         ...process.env,
         PYTHONUNBUFFERED: '1'
       }
     });
+
+    // Unref on Mac/Linux so process doesn't keep Node.js alive
+    if (spawnOptions.detached) {
+      this.process.unref();
+    }
 
     // Handle process events
     this.process.on('error', (error) => {
@@ -196,24 +209,25 @@ export class ComfyUIClient {
     this.process.on('exit', (code, signal) => {
       this.logger.info('ComfyUI process exited', { code, signal });
       this.process = undefined as ChildProcess | undefined;
+      if (this.logStream) {
+        this.logStream.end();
+        this.logStream = undefined;
+      }
     });
 
-    // Log stderr for debugging
-    if (this.process.stderr) {
+    // Log output to file (only if stdio is pipe, not ignore)
+    if (this.process.stderr && typeof this.process.stderr !== 'string') {
       this.process.stderr.on('data', (data) => {
-        const output = data.toString().trim();
-        if (output) {
-          this.logger.debug('ComfyUI stderr', { output });
+        if (this.logStream) {
+          this.logStream.write(`[STDERR] ${data}`);
         }
       });
     }
 
-    // Log stdout for debugging
-    if (this.process.stdout) {
+    if (this.process.stdout && typeof this.process.stdout !== 'string') {
       this.process.stdout.on('data', (data) => {
-        const output = data.toString().trim();
-        if (output) {
-          this.logger.debug('ComfyUI stdout', { output });
+        if (this.logStream) {
+          this.logStream.write(`[STDOUT] ${data}`);
         }
       });
     }
@@ -238,6 +252,12 @@ export class ComfyUIClient {
     this.logger.info('Stopping ComfyUI service');
 
     this.process.kill('SIGTERM');
+
+    // Close log stream
+    if (this.logStream) {
+      this.logStream.end();
+      this.logStream = undefined;
+    }
 
     // Force kill after timeout
     setTimeout(() => {

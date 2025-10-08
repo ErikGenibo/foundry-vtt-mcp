@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
+import { getFoundryDataDir, getDefaultComfyUIDir } from './utils/platform.js';
 
 dotenv.config();
 
@@ -39,6 +40,9 @@ const ConfigSchema = z.object({
   comfyui: z.object({
     // ComfyUI always runs locally on the same machine as the MCP server
     port: z.number().min(1024).max(65535).default(31411),
+    installPath: z.string().default(getDefaultComfyUIDir()),
+    host: z.string().default('127.0.0.1'),
+    pythonCommand: z.string().default('python/python.exe'), // Will be platform-specific
   }),
   server: z.object({
     name: z.string().default('foundry-mcp-server'),
@@ -73,7 +77,10 @@ const rawConfig = {
   },
   comfyui: {
     // ComfyUI always runs locally on the same machine as the MCP server (localhost:31411)
-    port: 31411
+    port: parseInt(process.env.COMFYUI_PORT || '31411', 10),
+    installPath: process.env.COMFYUI_INSTALL_PATH || getDefaultComfyUIDir(),
+    host: process.env.COMFYUI_HOST || '127.0.0.1',
+    pythonCommand: process.env.COMFYUI_PYTHON_COMMAND || 'python/python.exe'
   },
   server: {
     name: process.env.SERVER_NAME || 'foundry-mcp-server',
