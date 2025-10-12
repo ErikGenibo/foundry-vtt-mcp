@@ -47,7 +47,7 @@ RequestExecutionLevel user
 ; Version information
 ; Strip 'v' prefix and any suffix (like '-pre', '-alpha', etc.) from VERSION
 !ifndef VERSION
-  !define VERSION "v0.5.0"
+  !define VERSION "v0.5.5"
 !endif
 
 ; Process VERSION: remove 'v' prefix and everything after '-'

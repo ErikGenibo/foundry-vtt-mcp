@@ -16,7 +16,8 @@ const { execSync } = require('child_process');
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-let version = 'v0.5.4'; // default version
+const packageJson = require('../package.json');
+let version = `v${packageJson.version}`; // default version from package.json
 let skipDownload = false;
 let skipNsis = false;
 

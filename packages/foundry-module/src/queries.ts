@@ -1022,8 +1022,10 @@ export class QueryHandlers {
 
       console.log(`[${MODULE_ID}] Ensuring upload directory exists...`);
 
-      // Upload to user data folder to avoid module update warnings
-      const uploadPath = 'ai-generated-maps';
+      // Upload to world-specific folder so maps persist even if module is deleted
+      // This also keeps maps organized per world
+      const worldId = (game as any).world?.id || 'unknown-world';
+      const uploadPath = `worlds/${worldId}/ai-generated-maps`;
       try {
         // Use the modern Foundry API (v13+) with fallback for older versions
         const FilePickerAPI = (globalThis as any).foundry?.applications?.apps?.FilePicker?.implementation || (globalThis as any).FilePicker;

@@ -45,7 +45,8 @@ interface CompendiumSearchResult {
   description?: string;
 }
 
-interface EnhancedCreatureIndex {
+// D&D 5e Enhanced Creature Index
+interface DnD5eCreatureIndex {
   id: string;
   name: string;
   type: string;
@@ -63,11 +64,35 @@ interface EnhancedCreatureIndex {
   img?: string;
 }
 
+// Pathfinder 2e Enhanced Creature Index
+interface PF2eCreatureIndex {
+  id: string;
+  name: string;
+  type: string;
+  pack: string;
+  packLabel: string;
+  level: number;                    // PF2e: -1 to 25+
+  traits: string[];                 // PF2e: ['dragon', 'fire', 'amphibious']
+  creatureType: string;             // Primary trait extracted from traits array
+  rarity: string;                   // PF2e: 'common', 'uncommon', 'rare', 'unique'
+  size: string;
+  hitPoints: number;
+  armorClass: number;
+  hasSpells: boolean;
+  alignment: string;
+  description?: string;
+  img?: string;
+}
+
+// Union type for both systems
+type EnhancedCreatureIndex = DnD5eCreatureIndex | PF2eCreatureIndex;
+
 interface PersistentIndexMetadata {
   version: string;
   timestamp: number;
   packFingerprints: Map<string, PackFingerprint>;
   totalCreatures: number;
+  gameSystem: string;  // 'dnd5e' or 'pf2e'
 }
 
 interface PackFingerprint {
@@ -333,7 +358,15 @@ class PersistentCreatureIndex {
    * Check if existing index is valid (all packs unchanged)
    */
   private isIndexValid(existingIndex: PersistentEnhancedIndex): boolean {
+    // Check version
     if (existingIndex.metadata.version !== this.INDEX_VERSION) {
+      return false;
+    }
+
+    // NEW: Check system compatibility
+    const currentSystem = (game as any).system.id;
+    if (existingIndex.metadata.gameSystem !== currentSystem) {
+      console.log(`[${this.moduleId}] System changed from ${existingIndex.metadata.gameSystem} to ${currentSystem}, index invalidated`);
       return false;
     }
 
@@ -481,16 +514,35 @@ class PersistentCreatureIndex {
       throw new Error('Index build already in progress');
     }
 
+    // Detect game system ONCE at build time
+    const gameSystem = (game as any).system.id;
+
+    console.log(`[${this.moduleId}] Building enhanced creature index for system: ${gameSystem}`);
+
+    // Route to system-specific builder
+    if (gameSystem === 'pf2e') {
+      return await this.buildPF2eIndex(force);
+    } else if (gameSystem === 'dnd5e') {
+      return await this.buildDnD5eIndex(force);
+    } else {
+      throw new Error(`Enhanced creature index not supported for system: ${gameSystem}. Only D&D 5e and Pathfinder 2e are currently supported.`);
+    }
+  }
+
+  /**
+   * Build D&D 5e enhanced creature index
+   */
+  private async buildDnD5eIndex(_force = false): Promise<DnD5eCreatureIndex[]> {
     this.buildInProgress = true;
-    
+
     const startTime = Date.now();
     let progressNotification: any = null;
     let totalErrors = 0; // Track extraction errors
 
     try {
-      
+
       const actorPacks = Array.from(game.packs.values()).filter(pack => pack.metadata.type === 'Actor');
-      const enhancedCreatures: EnhancedCreatureIndex[] = [];
+      const enhancedCreatures: DnD5eCreatureIndex[] = [];
       const packFingerprints = new Map<string, PackFingerprint>();
 
       // Show initial progress notification
@@ -532,7 +584,7 @@ class PersistentCreatureIndex {
           }
 
           // Process creatures in this pack
-          const packResult = await this.extractEnhancedDataFromPack(pack);
+          const packResult = await this.extractDnD5eDataFromPack(pack);
           enhancedCreatures.push(...packResult.creatures);
           totalErrors += packResult.errors;
 
@@ -568,7 +620,8 @@ class PersistentCreatureIndex {
           version: this.INDEX_VERSION,
           timestamp: Date.now(),
           packFingerprints,
-          totalCreatures: enhancedCreatures.length
+          totalCreatures: enhancedCreatures.length,
+          gameSystem: 'dnd5e'  // Mark as D&D 5e index
         },
         creatures: enhancedCreatures
       };
@@ -607,10 +660,10 @@ class PersistentCreatureIndex {
   }
 
   /**
-   * Extract enhanced data from all documents in a pack
+   * Extract D&D 5e data from all documents in a pack
    */
-  private async extractEnhancedDataFromPack(pack: any): Promise<{ creatures: EnhancedCreatureIndex[], errors: number }> {
-    const creatures: EnhancedCreatureIndex[] = [];
+  private async extractDnD5eDataFromPack(pack: any): Promise<{ creatures: DnD5eCreatureIndex[], errors: number }> {
+    const creatures: DnD5eCreatureIndex[] = [];
     let errors = 0;
 
     try {
@@ -624,7 +677,7 @@ class PersistentCreatureIndex {
             continue;
           }
 
-          const result = this.extractEnhancedCreatureData(doc, pack);
+          const result = this.extractDnD5eCreatureData(doc, pack);
           if (result) {
             creatures.push(result.creature);
             errors += result.errors;
@@ -645,9 +698,9 @@ class PersistentCreatureIndex {
   }
 
   /**
-   * Extract enhanced creature data from a single document
+   * Extract D&D 5e creature data from a single document
    */
-  private extractEnhancedCreatureData(doc: any, pack: any): { creature: EnhancedCreatureIndex, errors: number } | null {
+  private extractDnD5eCreatureData(doc: any, pack: any): { creature: DnD5eCreatureIndex, errors: number } | null {
     try {
       const system = doc.system || {};
       
@@ -782,6 +835,230 @@ class PersistentCreatureIndex {
           hasSpells: false,
           hasLegendaryActions: false,
           alignment: 'unaligned',
+          description: 'Data extraction failed',
+          img: doc.img || ''
+        },
+        errors: 1
+      };
+    }
+  }
+
+  /**
+   * Build Pathfinder 2e enhanced creature index
+   */
+  private async buildPF2eIndex(_force = false): Promise<PF2eCreatureIndex[]> {
+    this.buildInProgress = true;
+
+    const startTime = Date.now();
+    let progressNotification: any = null;
+    let totalErrors = 0;
+
+    try {
+      const actorPacks = Array.from(game.packs.values()).filter(pack => pack.metadata.type === 'Actor');
+      const enhancedCreatures: PF2eCreatureIndex[] = [];
+      const packFingerprints = new Map<string, PackFingerprint>();
+
+      ui.notifications?.info(`Starting PF2e creature index build from ${actorPacks.length} packs...`);
+
+      let currentPack = 0;
+      for (const pack of actorPacks) {
+        currentPack++;
+
+        if (progressNotification) {
+          progressNotification.remove();
+        }
+        progressNotification = ui.notifications?.info(
+          `Building PF2e index: Pack ${currentPack}/${actorPacks.length} (${pack.metadata.label})...`
+        );
+
+        const fingerprint = await this.generatePackFingerprint(pack);
+        packFingerprints.set(pack.metadata.id, fingerprint);
+
+        const result = await this.extractPF2eDataFromPack(pack);
+        enhancedCreatures.push(...result.creatures);
+        totalErrors += result.errors;
+      }
+
+      if (progressNotification) {
+        progressNotification.remove();
+      }
+      ui.notifications?.info(`Saving PF2e index to world database... (${enhancedCreatures.length} creatures)`);
+
+      const persistentIndex: PersistentEnhancedIndex = {
+        metadata: {
+          version: this.INDEX_VERSION,
+          timestamp: Date.now(),
+          packFingerprints,
+          totalCreatures: enhancedCreatures.length,
+          gameSystem: 'pf2e'  // Mark as PF2e index
+        },
+        creatures: enhancedCreatures
+      };
+
+      await this.savePersistedIndex(persistentIndex);
+
+      const buildTimeSeconds = Math.round((Date.now() - startTime) / 1000);
+      const errorText = totalErrors > 0 ? ` (${totalErrors} extraction errors)` : '';
+      const successMessage = `PF2e creature index complete! ${enhancedCreatures.length} creatures indexed from ${actorPacks.length} packs in ${buildTimeSeconds}s${errorText}`;
+
+      ui.notifications?.info(successMessage);
+
+      return enhancedCreatures;
+
+    } catch (error) {
+      if (progressNotification) {
+        progressNotification.remove();
+      }
+
+      const errorMessage = `Failed to build PF2e creature index: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      console.error(`[${this.moduleId}] ${errorMessage}`);
+      ui.notifications?.error(errorMessage);
+
+      throw error;
+
+    } finally {
+      this.buildInProgress = false;
+
+      if (progressNotification) {
+        progressNotification.remove();
+      }
+    }
+  }
+
+  /**
+   * Extract PF2e creature data from all documents in a pack
+   */
+  private async extractPF2eDataFromPack(pack: any): Promise<{ creatures: PF2eCreatureIndex[], errors: number }> {
+    const creatures: PF2eCreatureIndex[] = [];
+    let errors = 0;
+
+    try {
+      const documents = await pack.getDocuments();
+
+      for (const doc of documents) {
+        try {
+          if (doc.type !== 'npc' && doc.type !== 'character') {
+            continue;
+          }
+
+          const result = this.extractPF2eCreatureData(doc, pack);
+          if (result) {
+            creatures.push(result.creature);
+            errors += result.errors;
+          }
+
+        } catch (error) {
+          console.warn(`[${this.moduleId}] Failed to extract PF2e data from ${doc.name} in ${pack.metadata.label}:`, error);
+          errors++;
+        }
+      }
+
+    } catch (error) {
+      console.warn(`[${this.moduleId}] Failed to load documents from ${pack.metadata.label}:`, error);
+      errors++;
+    }
+
+    return { creatures, errors };
+  }
+
+  /**
+   * Extract Pathfinder 2e creature data from a single document
+   */
+  private extractPF2eCreatureData(doc: any, pack: any): { creature: PF2eCreatureIndex, errors: number } | null {
+    try {
+      const system = doc.system || {};
+
+      // Level extraction (PF2e primary power metric)
+      let level = system.details?.level?.value ?? 0;
+      level = Number(level) || 0;
+
+      // Traits extraction (PF2e uses array of traits)
+      const traitsValue = system.traits?.value || [];
+      const traits = Array.isArray(traitsValue) ? traitsValue : [];
+
+      // Extract primary creature type from traits
+      const creatureTraits = ['aberration', 'animal', 'beast', 'celestial',
+                              'construct', 'dragon', 'elemental', 'fey',
+                              'fiend', 'fungus', 'humanoid', 'monitor',
+                              'ooze', 'plant', 'undead'];
+      const creatureType = traits.find((t: string) =>
+        creatureTraits.includes(t.toLowerCase())
+      )?.toLowerCase() || 'unknown';
+
+      // Rarity extraction (PF2e specific)
+      const rarity = system.traits?.rarity || 'common';
+
+      // Size extraction
+      let size = system.traits?.size?.value || 'med';
+      // Normalize PF2e size values (tiny, sm, med, lg, huge, grg)
+      const sizeMap: Record<string, string> = {
+        'tiny': 'tiny',
+        'sm': 'small',
+        'med': 'medium',
+        'lg': 'large',
+        'huge': 'huge',
+        'grg': 'gargantuan'
+      };
+      size = sizeMap[size.toLowerCase()] || 'medium';
+
+      // Hit Points
+      const hitPoints = system.attributes?.hp?.max || 0;
+
+      // Armor Class
+      const armorClass = system.attributes?.ac?.value || 10;
+
+      // Spellcasting detection (PF2e uses spellcasting entries)
+      const spellcasting = system.spellcasting || {};
+      const hasSpells = Object.keys(spellcasting).length > 0;
+
+      // Alignment
+      let alignment = system.details?.alignment?.value || 'N';
+      if (typeof alignment !== 'string') {
+        alignment = String(alignment || 'N');
+      }
+
+      return {
+        creature: {
+          id: doc._id,
+          name: doc.name,
+          type: doc.type,
+          pack: pack.metadata.id,
+          packLabel: pack.metadata.label,
+          level: level,
+          traits: traits,
+          creatureType: creatureType,
+          rarity: rarity,
+          size: size,
+          hitPoints: hitPoints,
+          armorClass: armorClass,
+          hasSpells: hasSpells,
+          alignment: alignment.toUpperCase(),
+          description: system.details?.publicNotes || system.details?.biography || '',
+          img: doc.img
+        },
+        errors: 0
+      };
+
+    } catch (error) {
+      console.warn(`[${this.moduleId}] Failed to extract PF2e data from ${doc.name}:`, error);
+
+      // Fallback with error count
+      return {
+        creature: {
+          id: doc._id,
+          name: doc.name,
+          type: doc.type,
+          pack: pack.metadata.id,
+          packLabel: pack.metadata.label,
+          level: 0,
+          traits: [],
+          creatureType: 'unknown',
+          rarity: 'common',
+          size: 'medium',
+          hitPoints: 1,
+          armorClass: 10,
+          hasSpells: false,
+          alignment: 'N',
           description: 'Data extraction failed',
           img: doc.img || ''
         },
@@ -1265,10 +1542,14 @@ export class FoundryDataAccess {
       let filteredCreatures = enhancedCreatures.filter(creature => this.passesEnhancedCriteria(creature, criteria));
 
 
-      // Sort by CR then name for consistent ordering
+      // Sort by Level/CR then name for consistent ordering (system-aware)
       filteredCreatures.sort((a, b) => {
-        if (a.challengeRating !== b.challengeRating) {
-          return a.challengeRating - b.challengeRating; // Lower CR first
+        // Get power level (CR for D&D 5e, Level for PF2e)
+        const powerA = 'level' in a ? (a as PF2eCreatureIndex).level : (a as DnD5eCreatureIndex).challengeRating;
+        const powerB = 'level' in b ? (b as PF2eCreatureIndex).level : (b as DnD5eCreatureIndex).challengeRating;
+
+        if (powerA !== powerB) {
+          return powerA - powerB; // Lower power first
         }
         return a.name.localeCompare(b.name);
       });
@@ -1278,26 +1559,43 @@ export class FoundryDataAccess {
         filteredCreatures = filteredCreatures.slice(0, limit);
       }
 
-      // Convert enhanced creatures to result format
-      const results = filteredCreatures.map(creature => ({
-        id: creature.id,
-        name: creature.name,
-        type: creature.type,
-        pack: creature.pack,
-        packLabel: creature.packLabel,
-        description: creature.description || '',
-        hasImage: !!creature.img,
-        summary: `CR ${creature.challengeRating} ${creature.creatureType} from ${creature.packLabel}`,
-        // Include enhanced data for better sorting and display
-        challengeRating: creature.challengeRating,
-        creatureType: creature.creatureType,
-        size: creature.size,
-        hitPoints: creature.hitPoints,
-        armorClass: creature.armorClass,
-        hasSpells: creature.hasSpells,
-        hasLegendaryActions: creature.hasLegendaryActions,
-        alignment: creature.alignment
-      }));
+      // Convert enhanced creatures to result format (system-aware)
+      const results = filteredCreatures.map(creature => {
+        // Type guard for result formatting
+        const isPF2e = 'level' in creature;
+
+        return {
+          id: creature.id,
+          name: creature.name,
+          type: creature.type,
+          pack: creature.pack,
+          packLabel: creature.packLabel,
+          description: creature.description || '',
+          hasImage: !!creature.img,
+
+          // System-aware summary
+          summary: isPF2e
+            ? `Level ${(creature as PF2eCreatureIndex).level} ${creature.creatureType} (${(creature as PF2eCreatureIndex).rarity}) from ${creature.packLabel}`
+            : `CR ${(creature as DnD5eCreatureIndex).challengeRating} ${creature.creatureType} from ${creature.packLabel}`,
+
+          // Include all creature data (conditional based on system)
+          ...(isPF2e ? {
+            level: (creature as PF2eCreatureIndex).level,
+            traits: (creature as PF2eCreatureIndex).traits,
+            rarity: (creature as PF2eCreatureIndex).rarity
+          } : {
+            challengeRating: (creature as DnD5eCreatureIndex).challengeRating,
+            hasLegendaryActions: (creature as DnD5eCreatureIndex).hasLegendaryActions
+          }),
+
+          creatureType: creature.creatureType,
+          size: creature.size,
+          hitPoints: creature.hitPoints,
+          armorClass: creature.armorClass,
+          hasSpells: creature.hasSpells,
+          alignment: creature.alignment
+        };
+      });
 
       // Calculate pack distribution for summary
       const packResults = new Map();
@@ -1344,16 +1642,28 @@ export class FoundryDataAccess {
   }
 
   /**
-   * Check if enhanced creature passes all specified criteria
+   * Check if enhanced creature passes all specified criteria (system-aware routing)
    */
-  private passesEnhancedCriteria(creature: EnhancedCreatureIndex, criteria: {
+  private passesEnhancedCriteria(creature: EnhancedCreatureIndex, criteria: any): boolean {
+    // Type guard for PF2e creatures - check for level property
+    if ('level' in creature) {
+      return this.passesPF2eCriteria(creature as PF2eCreatureIndex, criteria);
+    } else {
+      return this.passesDnD5eCriteria(creature as DnD5eCreatureIndex, criteria);
+    }
+  }
+
+  /**
+   * Check if D&D 5e creature passes all specified criteria
+   */
+  private passesDnD5eCriteria(creature: DnD5eCreatureIndex, criteria: {
     challengeRating?: number | { min?: number; max?: number };
     creatureType?: string;
     size?: string;
     hasSpells?: boolean;
     hasLegendaryActions?: boolean;
   }): boolean {
-    
+
     // Challenge Rating filter
     if (criteria.challengeRating !== undefined) {
       if (typeof criteria.challengeRating === 'number') {
@@ -1397,6 +1707,66 @@ export class FoundryDataAccess {
       if (creature.hasLegendaryActions !== criteria.hasLegendaryActions) {
         return false;
       }
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if PF2e creature passes all specified criteria
+   */
+  private passesPF2eCriteria(creature: PF2eCreatureIndex, criteria: {
+    level?: number | { min?: number; max?: number };
+    traits?: string[];
+    rarity?: string;
+    creatureType?: string;
+    size?: string;
+    hasSpells?: boolean;
+  }): boolean {
+
+    // Level filter
+    if (criteria.level !== undefined) {
+      if (typeof criteria.level === 'number') {
+        if (creature.level !== criteria.level) {
+          return false;
+        }
+      } else if (typeof criteria.level === 'object') {
+        const { min = -1, max = 25 } = criteria.level;
+        if (creature.level < min || creature.level > max) {
+          return false;
+        }
+      }
+    }
+
+    // Traits filter (creature must have ALL specified traits)
+    if (criteria.traits && criteria.traits.length > 0) {
+      const hasAllTraits = criteria.traits.every(requiredTrait =>
+        creature.traits.some(t => t.toLowerCase() === requiredTrait.toLowerCase())
+      );
+      if (!hasAllTraits) {
+        return false;
+      }
+    }
+
+    // Rarity filter
+    if (criteria.rarity && creature.rarity !== criteria.rarity) {
+      return false;
+    }
+
+    // Creature type filter
+    if (criteria.creatureType &&
+        creature.creatureType.toLowerCase() !== criteria.creatureType.toLowerCase()) {
+      return false;
+    }
+
+    // Size filter
+    if (criteria.size && creature.size.toLowerCase() !== criteria.size.toLowerCase()) {
+      return false;
+    }
+
+    // Spellcasting filter
+    if (criteria.hasSpells !== undefined && creature.hasSpells !== criteria.hasSpells) {
+      return false;
     }
 
     return true;
