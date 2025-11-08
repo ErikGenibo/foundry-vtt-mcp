@@ -1,6 +1,7 @@
 import { RTCPeerConnection, RTCSessionDescription } from 'werift';
 import { Logger } from './logger.js';
 import type { Config } from './config.js';
+import { WEBRTC_CONSTANTS } from './config.js';
 
 export interface WebRTCPeerOptions {
   config: Config['foundry']['webrtc'];
@@ -19,12 +20,22 @@ export class WebRTCPeer {
   private config: Config['foundry']['webrtc'];
   private onMessageHandler: (message: any) => Promise<void>;
   private isConnected = false;
-  private pendingChunks: Map<string, { chunks: Map<number, string>, totalChunks: number, originalType: string, originalId: string }> = new Map();
+  private pendingChunks: Map<string, {
+    chunks: Map<number, string>;
+    totalChunks: number;
+    originalType: string;
+    originalId: string;
+    timestamp: number; // For timeout cleanup
+  }> = new Map();
+  private chunkCleanupInterval: NodeJS.Timeout | null = null;
 
   constructor({ config, logger, onMessage }: WebRTCPeerOptions) {
     this.config = config;
     this.logger = logger.child({ component: 'WebRTCPeer' });
     this.onMessageHandler = onMessage;
+
+    // Start cleanup interval for timed-out chunks
+    this.startChunkCleanup();
   }
 
   /**
@@ -133,7 +144,7 @@ export class WebRTCPeer {
 
     this.dataChannel.onmessage = async (event: any) => {
       try {
-        console.error('[WebRTC DEBUG] Data channel received raw message', {
+        this.logger.debug('Data channel received message', {
           dataLength: event.data?.length,
           dataPreview: event.data?.substring(0, 100)
         });
@@ -145,15 +156,15 @@ export class WebRTCPeer {
           return;
         }
 
-        console.error('[WebRTC DEBUG] Parsed message successfully', {
+        this.logger.debug('Parsed message successfully', {
           type: message.type,
           requestId: message.requestId,
           hasData: !!message.data
         });
         await this.onMessageHandler(message);
-        console.error('[WebRTC DEBUG] Message handler completed', { type: message.type });
+        this.logger.debug('Message handler completed', { type: message.type });
       } catch (error) {
-        console.error('[WebRTC DEBUG] Failed to parse or handle message', {
+        this.logger.error('Failed to parse or handle message', {
           error: error instanceof Error ? error.message : String(error),
           rawData: event.data?.substring(0, 200)
         });
@@ -176,10 +187,53 @@ export class WebRTCPeer {
     }
   }
 
+  /**
+   * Handle incoming chunked message fragments
+   * Validates chunks, stores them, and reassembles when all pieces arrive
+   */
   private async handleChunkedMessage(chunkMessage: any): Promise<void> {
     const { chunkId, chunkIndex, totalChunks, chunk, originalType, originalId } = chunkMessage;
 
-    console.error(`[WebRTC DEBUG] Received chunk ${chunkIndex + 1}/${totalChunks} for ${originalType}`);
+    // === VALIDATION: Prevent malformed/malicious chunks ===
+
+    // Validate required fields
+    if (!chunkId || typeof chunkIndex !== 'number' || typeof totalChunks !== 'number') {
+      this.logger.error('Invalid chunk message structure - missing required fields', { chunkMessage });
+      return;
+    }
+
+    // Validate chunk index range
+    if (chunkIndex < 0 || chunkIndex >= totalChunks) {
+      this.logger.error('Invalid chunk index out of range', {
+        chunkId,
+        chunkIndex,
+        totalChunks
+      });
+      return;
+    }
+
+    // Validate chunk data
+    if (!chunk || typeof chunk !== 'string') {
+      this.logger.error('Invalid chunk data - not a string', { chunkId, chunkIndex });
+      return;
+    }
+
+    // === SECURITY: Prevent chunk bomb attacks ===
+    if (totalChunks > WEBRTC_CONSTANTS.MAX_CHUNKS_PER_MESSAGE) {
+      this.logger.error('SECURITY: Chunk count exceeds maximum allowed', {
+        chunkId,
+        totalChunks,
+        maxAllowed: WEBRTC_CONSTANTS.MAX_CHUNKS_PER_MESSAGE,
+        originalType
+      });
+      return;
+    }
+
+    this.logger.debug(`Received chunk ${chunkIndex + 1}/${totalChunks}`, {
+      chunkId,
+      originalType,
+      chunkSize: chunk.length
+    });
 
     // Initialize chunk storage for this message
     if (!this.pendingChunks.has(chunkId)) {
@@ -187,43 +241,138 @@ export class WebRTCPeer {
         chunks: new Map(),
         totalChunks,
         originalType,
-        originalId
+        originalId,
+        timestamp: Date.now() // Track when first chunk arrived
       });
     }
 
     const pending = this.pendingChunks.get(chunkId)!;
+
+    // === VALIDATION: Ensure totalChunks stays consistent ===
+    if (pending.totalChunks !== totalChunks) {
+      this.logger.error('Chunk count mismatch - aborting reassembly', {
+        chunkId,
+        expectedTotalChunks: pending.totalChunks,
+        receivedTotalChunks: totalChunks
+      });
+      this.pendingChunks.delete(chunkId);
+      return;
+    }
+
+    // Store chunk
     pending.chunks.set(chunkIndex, chunk);
 
-    console.error(`[WebRTC DEBUG] Collected ${pending.chunks.size}/${totalChunks} chunks`);
+    this.logger.debug(`Collected ${pending.chunks.size}/${totalChunks} chunks`, { chunkId });
 
     // Check if we have all chunks
     if (pending.chunks.size === totalChunks) {
-      console.error(`[WebRTC DEBUG] All chunks received, reassembling message`);
+      this.logger.info('All chunks received - reassembling message', {
+        chunkId,
+        originalType,
+        totalChunks
+      });
 
       // Reassemble in order
       let reassembled = '';
       for (let i = 0; i < totalChunks; i++) {
-        reassembled += pending.chunks.get(i) || '';
+        const chunkData = pending.chunks.get(i);
+        if (!chunkData) {
+          this.logger.error('Missing chunk during reassembly', {
+            chunkId,
+            missingIndex: i,
+            totalChunks
+          });
+          this.pendingChunks.delete(chunkId);
+          return;
+        }
+        reassembled += chunkData;
       }
 
-      console.error(`[WebRTC DEBUG] Reassembled ${reassembled.length} bytes`);
+      this.logger.debug(`Reassembled ${reassembled.length} bytes`, { chunkId });
 
       // Parse and handle the complete message
       try {
         const completeMessage = JSON.parse(reassembled);
-        console.error(`[WebRTC DEBUG] Parsed reassembled message successfully`);
+        this.logger.debug('Parsed reassembled message successfully', {
+          type: completeMessage.type,
+          id: completeMessage.id
+        });
         await this.onMessageHandler(completeMessage);
-        console.error(`[WebRTC DEBUG] Reassembled message handler completed`);
+        this.logger.debug('Reassembled message handler completed', {
+          type: completeMessage.type
+        });
       } catch (error) {
-        console.error(`[WebRTC DEBUG] Failed to parse reassembled message:`, error);
+        this.logger.error('Failed to parse or handle reassembled message', {
+          error: error instanceof Error ? error.message : String(error),
+          chunkId,
+          reassembledLength: reassembled.length
+        });
+
+        // Send error response to client if we have a requestId
+        if (originalId) {
+          this.sendMessage({
+            type: 'error',
+            requestId: originalId,
+            error: 'Failed to reassemble chunked message',
+            details: error instanceof Error ? error.message : String(error)
+          });
+        }
       }
 
-      // Clean up
+      // Clean up completed message
       this.pendingChunks.delete(chunkId);
     }
   }
 
+  /**
+   * Start background cleanup task for timed-out chunks
+   * Prevents memory leaks from incomplete message transfers
+   */
+  private startChunkCleanup(): void {
+    this.chunkCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      let cleanedCount = 0;
+
+      for (const [chunkId, pending] of this.pendingChunks.entries()) {
+        const age = now - pending.timestamp;
+
+        if (age > WEBRTC_CONSTANTS.CHUNK_TIMEOUT_MS) {
+          this.logger.warn('Chunk timeout - cleaning up incomplete message', {
+            chunkId,
+            originalType: pending.originalType,
+            receivedChunks: pending.chunks.size,
+            totalChunks: pending.totalChunks,
+            ageMs: age
+          });
+
+          // Send error response to client if we have a requestId
+          if (pending.originalId) {
+            this.sendMessage({
+              type: 'error',
+              requestId: pending.originalId,
+              error: 'Chunked message timeout',
+              details: `Received ${pending.chunks.size}/${pending.totalChunks} chunks before timeout`
+            });
+          }
+
+          this.pendingChunks.delete(chunkId);
+          cleanedCount++;
+        }
+      }
+
+      if (cleanedCount > 0) {
+        this.logger.info(`Cleaned up ${cleanedCount} timed-out chunk message(s)`);
+      }
+    }, WEBRTC_CONSTANTS.CHUNK_CLEANUP_INTERVAL_MS);
+  }
+
   disconnect(): void {
+    // Stop chunk cleanup interval
+    if (this.chunkCleanupInterval) {
+      clearInterval(this.chunkCleanupInterval);
+      this.chunkCleanupInterval = null;
+    }
+
     if (this.dataChannel) {
       this.dataChannel.close();
       this.dataChannel = null;
