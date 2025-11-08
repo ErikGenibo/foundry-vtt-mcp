@@ -204,18 +204,20 @@ export class WebRTCConnection {
       const json = JSON.stringify(message);
       const size = json.length;
 
-      // SCTP maxMessageSize is 64KB (65536 bytes), use 50KB as safe threshold for chunking
-      // to account for JSON wrapper overhead (up to ~10KB due to string escaping in nested JSON)
-      const MAX_CHUNK_SIZE = 50 * 1024; // 50KB
+      // WebRTC SCTP constants (keep in sync with server config.ts WEBRTC_CONSTANTS)
+      const MAX_MESSAGE_SIZE = 65536; // 64KB - SCTP hard limit
+      const CHUNK_SIZE = 50 * 1024;    // 50KB - safe threshold for chunking
 
-      if (size > MAX_CHUNK_SIZE) {
-        // Split into chunks
-        const totalChunks = Math.ceil(json.length / MAX_CHUNK_SIZE);
+      if (size > CHUNK_SIZE) {
+        // Split large message into chunks
+        const totalChunks = Math.ceil(json.length / CHUNK_SIZE);
         const chunkId = `chunk-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+        this.log(`Chunking large message: ${size} bytes → ${totalChunks} chunks (type: ${message.type})`);
+
         for (let i = 0; i < totalChunks; i++) {
-          const start = i * MAX_CHUNK_SIZE;
-          const end = Math.min(start + MAX_CHUNK_SIZE, json.length);
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, json.length);
           const chunk = json.substring(start, end);
 
           const chunkMessage = {
@@ -230,18 +232,28 @@ export class WebRTCConnection {
 
           const chunkJson = JSON.stringify(chunkMessage);
 
-          // Verify chunk doesn't exceed SCTP maxMessageSize
-          if (chunkJson.length > 65536) {
-            throw new Error(`Chunk size ${chunkJson.length} exceeds SCTP maxMessageSize of 65536 bytes`);
+          // Verify chunk doesn't exceed SCTP maxMessageSize (safety check)
+          if (chunkJson.length > MAX_MESSAGE_SIZE) {
+            throw new Error(
+              `Chunk ${i + 1}/${totalChunks} size ${chunkJson.length} exceeds ` +
+              `SCTP maxMessageSize of ${MAX_MESSAGE_SIZE} bytes. ` +
+              `Original message may be too large to chunk safely.`
+            );
           }
 
           this.dataChannel.send(chunkJson);
+          this.log(`Sent chunk ${i + 1}/${totalChunks} (${chunkJson.length} bytes)`);
         }
+
+        this.log(`Successfully sent all ${totalChunks} chunks for ${message.type}`);
       } else {
+        // Send as single message
         this.dataChannel.send(json);
+        this.log(`Sent WebRTC message: ${message.type} (${size} bytes)`);
       }
     } catch (error) {
       this.log(`Failed to send WebRTC message: ${error}`);
+      throw error; // Re-throw so caller knows send failed
     }
   }
 
