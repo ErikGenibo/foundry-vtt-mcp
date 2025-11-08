@@ -201,10 +201,59 @@ export class WebRTCConnection {
     }
 
     try {
-      this.dataChannel.send(JSON.stringify(message));
-      this.log(`Sent WebRTC message: ${message.type}`);
+      const json = JSON.stringify(message);
+      const size = json.length;
+
+      // WebRTC SCTP constants (keep in sync with server config.ts WEBRTC_CONSTANTS)
+      const MAX_MESSAGE_SIZE = 65536; // 64KB - SCTP hard limit
+      const CHUNK_SIZE = 50 * 1024;    // 50KB - safe threshold for chunking
+
+      if (size > CHUNK_SIZE) {
+        // Split large message into chunks
+        const totalChunks = Math.ceil(json.length / CHUNK_SIZE);
+        const chunkId = `chunk-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+        this.log(`Chunking large message: ${size} bytes → ${totalChunks} chunks (type: ${message.type})`);
+
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * CHUNK_SIZE;
+          const end = Math.min(start + CHUNK_SIZE, json.length);
+          const chunk = json.substring(start, end);
+
+          const chunkMessage = {
+            type: 'chunked-message',
+            chunkId: chunkId,
+            chunkIndex: i,
+            totalChunks: totalChunks,
+            chunk: chunk,
+            originalType: message.type,
+            originalId: message.id
+          };
+
+          const chunkJson = JSON.stringify(chunkMessage);
+
+          // Verify chunk doesn't exceed SCTP maxMessageSize (safety check)
+          if (chunkJson.length > MAX_MESSAGE_SIZE) {
+            throw new Error(
+              `Chunk ${i + 1}/${totalChunks} size ${chunkJson.length} exceeds ` +
+              `SCTP maxMessageSize of ${MAX_MESSAGE_SIZE} bytes. ` +
+              `Original message may be too large to chunk safely.`
+            );
+          }
+
+          this.dataChannel.send(chunkJson);
+          this.log(`Sent chunk ${i + 1}/${totalChunks} (${chunkJson.length} bytes)`);
+        }
+
+        this.log(`Successfully sent all ${totalChunks} chunks for ${message.type}`);
+      } else {
+        // Send as single message
+        this.dataChannel.send(json);
+        this.log(`Sent WebRTC message: ${message.type} (${size} bytes)`);
+      }
     } catch (error) {
       this.log(`Failed to send WebRTC message: ${error}`);
+      throw error; // Re-throw so caller knows send failed
     }
   }
 
