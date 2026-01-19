@@ -322,32 +322,35 @@ These are consequences triggered by player decisions. Track them here.
 
 ### Nana's Enhanced Niaqui Operation
 **Trigger:** Party reveals the SOURCE of enhanced niaqui to Nana during debrief
-**Status:** NOT YET TRIGGERED
+**Status:** TRIGGERED (Session 2026-01-18)
 
-If triggered:
-- **Immediate:** Nothing visible. Nana thanks them for the intel.
-- **Weeks later:** Nana sends people to investigate the Precursor ruins.
+Party revealed the Midwife lead and Nana connected the dots to the enhanced niaqui source. She now knows about the Precursor ruins, the Newborn flesh, and the Midwife's ability to "plant properly."
+
+**Timeline:**
+- **Immediate (now):** Nana has the intel. Proposing deal: party retrieves Midwife, then they "have a conversation about what she knows."
+- **Weeks later:** Nana will send people to investigate the Precursor ruins.
 - **Months later:** Enhanced niaqui begins appearing in Port Gelling's drug supply.
 - **Long-term:** The drug spreads. People start changing. The Newborn's influence grows through commerce instead of cult.
 
-If they stay vague: Timer doesn't start. Nana investigates on her own (slower, may never find the source).
+**Key quote:** *"Which means the Midwife can also plant them. Properly."*
 
 ---
 
 ### Guk's Goblins
 **Trigger:** Ringo speaks up for Guk during Nana debrief
-**Status:** NOT YET TRIGGERED
+**Status:** RESOLVED - GOBLINS DEAD (Session 2026-01-18)
 
-If Ringo vouches:
-- Guk and his crew become guards at the Precursor ruin entrance
-- "Ringo's goblins" - his responsibility
-- Potential allies for future ruin exploration
-- Could cause problems if they get greedy or scared
+Ringo passed word along but did not vouch for the goblins when Nana mentioned "clearing" them. The opening closed. Nana's crew killed Guk and 12 goblins the next morning - quick, efficient, professional.
 
-If Ringo stays silent:
-- Guk and crew get "cleared out" off-screen
-- Broken promise - Guk trusted Ringo
-- Could return as enemy, or just a tragedy
+**Consequences:**
+- Guk is dead. The promise made during infiltration was not kept.
+- Future goblin contacts in the system will be cold: *"Port Gelling people? You work with the grandmother-machine. We don't help her friends."*
+- A survivor (goblin who wasn't there) may track the party down - revenge, plea for help, or information about what goblins saw that Nana didn't want getting out.
+
+**What was lost:**
+- Potential allies for ruin exploration
+- Information network in Port Gelling's margins
+- Ringo's reputation among goblins
 
 ---
 

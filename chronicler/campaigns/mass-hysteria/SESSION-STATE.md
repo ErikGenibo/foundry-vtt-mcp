@@ -1,11 +1,77 @@
 # Session State - Save Point
 
 **Date:** 2026-01-18
-**Context:** Session prep for today's game, plus Port Gelling worldbuilding
+**Context:** Post-session - game completed, prepping for next session
 
 ---
 
-## CURRENT TASK: Port Gelling NPC Descriptions
+## SESSION COMPLETED: January 18, 2026
+
+**Full recap at:** `sessions/2026-01-18-recap.md`
+
+**Quick summary:**
+- Prologue at compound: witnessed Incomplete awakening, Tu'Sev Precursor visions, Prismara thread-sight and Newborn contact
+- Port Gelling: Nana debrief, party revealed the Midwife lead, Ringo didn't vouch for goblins (Guk dead)
+- Ended: Ready to descend into cave for Midwife rescue
+
+**Next session:** Cave encounter (Incomplete vs Hollow), Midwife rescue, Jemini cure
+
+---
+
+## PREVIOUS TASK: Fleshing Out Session Prep
+
+### COMPLETED THIS SESSION:
+1. **Cave Combat Encounter** - Redesigned completely
+   - Removed placeholder guards
+   - Created "The Incomplete" (botched transformations from Bori's backlash)
+   - Created "The Hollow" (Precursor defense system, disguised as bug-things)
+   - Two factions fighting each other, party walks into ongoing war
+   - Multiple resolution paths, moral complexity
+   - Clue obfuscation built in (Precursor nature hidden)
+
+2. **Nana Sweetie Full Profile** - Added to session prep
+   - Human, 100+ years old, elderly Black woman in wheelchair
+   - Elderly Machiavelli - kindly grandmother act is deliberate
+   - "Nana doesn't slip" - everything she shows is intentional
+   - Sweetiebot hierarchy documented (Greeter → Helper → Patrol → Protector → M.A.D.S.)
+   - Sample dialogue for debrief scene
+   - Previous interactions with party noted
+
+3. **Midwife Quote Preserved** - "He was standing in front of an ocean and asking it to make him special."
+
+### ALSO COMPLETED:
+4. **Cure Ritual Experience** - Full 5-beat dramatic sequence
+   - Consent mechanics and persuasion DCs
+   - Beat-by-beat read-aloud (Search → Finding → Drawing Out → Loss → Completion)
+   - Aftermath: Jemini's emotional state, extracted seeds decision, Cassie reunion
+
+5. **Cassie's Hidden Knowledge** - Full section added
+   - Recontextualized for <5 year timeline (Antares system newly opened)
+   - Her husband Talven (Jemini's father) - disappeared chasing the truth
+   - Knowledge of ruins, "channels," and what's under Port Gelling
+   - Jemini never knew her father - this is new to her too
+
+6. **Cultist Survivors** - 4 additional NPCs created
+   - Davros (Shirren, true believer, has Seeds, ticking bomb)
+   - Kellix (Ysoki, con artist, knows blackmail files)
+   - Venn (Human, archivist, documented 73 transformations)
+   - Zara (optional - completed cultist, looks normal, watching them)
+
+7. **Guk Follow-Up Scene** - Full scene written
+   - Ringo-focused, goblin debt culture
+   - Services Guk can offer (information, scavenging, distraction, etc.)
+   - Path to goblins becoming recurring allies or staying transactional
+   - Sample dialogue for Guk
+
+### TIMELINE FIX APPLIED:
+- Port Gelling is <5 years old (Drift Beacon recently activated)
+- Nana was HERE when the Beacon activated (mystery)
+- Cassie is first-wave settler, not decades-long resident
+- Talven disappeared ~4 years ago while Cassie was pregnant
+
+---
+
+## PREVIOUS TASK: Port Gelling NPC Descriptions
 
 ### Completed NPCs (ready to use):
 
