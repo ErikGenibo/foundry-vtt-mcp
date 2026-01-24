@@ -34,6 +34,12 @@ import { MapGenerationTools } from './tools/map-generation.js';
 
 import { TokenManipulationTools } from './tools/token-manipulation.js';
 
+import { TileManipulationTools } from './tools/tile-manipulation.js';
+
+import { TokenArtGenerationTools } from './tools/token-art-generation.js';
+
+import { GeminiClient } from './gemini-client.js';
+
 import { DSA5CharacterCreator } from './systems/dsa5/character-creator.js';
 
 const CONTROL_HOST = '127.0.0.1';
@@ -1078,6 +1084,29 @@ async function startBackend(): Promise<void> {
 
   const tokenManipulationTools = new TokenManipulationTools({ foundryClient, logger });
 
+  const tileManipulationTools = new TileManipulationTools({ foundryClient, logger });
+
+  // Initialize Gemini client for token art generation (if API key configured)
+  let geminiClient: GeminiClient | undefined;
+  if (config.gemini?.enabled && config.gemini?.apiKey) {
+    geminiClient = new GeminiClient({
+      logger,
+      config: {
+        apiKey: config.gemini.apiKey,
+        model: config.gemini.model
+      }
+    });
+    logger.info('Gemini client initialized for token art generation', { model: config.gemini.model });
+  } else {
+    logger.info('Gemini client not initialized (GEMINI_API_KEY not set)');
+  }
+
+  const tokenArtGenerationTools = new TokenArtGenerationTools({
+    foundryClient,
+    logger,
+    geminiClient
+  });
+
   // Initialize mapgen-style backend components for map generation
   let mapGenerationJobQueue: any = null;
   let mapGenerationComfyUIClient: any = null;
@@ -1309,7 +1338,11 @@ async function startBackend(): Promise<void> {
 
     ...tokenManipulationTools.getToolDefinitions(),
 
+    ...tileManipulationTools.getToolDefinitions(),
+
     ...mapGenerationTools.getToolDefinitions(),
+
+    ...tokenArtGenerationTools.getToolDefinitions(),
 
   ];
 
@@ -1603,6 +1636,44 @@ async function startBackend(): Promise<void> {
 
                   break;
 
+                // Tile manipulation tools
+
+                case 'create-tile':
+
+                  result = await tileManipulationTools.handleCreateTile(args);
+
+                  break;
+
+                case 'move-tile':
+
+                  result = await tileManipulationTools.handleMoveTile(args);
+
+                  break;
+
+                case 'update-tile':
+
+                  result = await tileManipulationTools.handleUpdateTile(args);
+
+                  break;
+
+                case 'delete-tiles':
+
+                  result = await tileManipulationTools.handleDeleteTiles(args);
+
+                  break;
+
+                case 'list-tiles':
+
+                  result = await tileManipulationTools.handleListTiles(args);
+
+                  break;
+
+                case 'get-tile-details':
+
+                  result = await tileManipulationTools.handleGetTileDetails(args);
+
+                  break;
+
                 // Map generation tools
 
                 case 'generate-map':
@@ -1632,6 +1703,12 @@ async function startBackend(): Promise<void> {
                 case 'switch-scene':
 
                   result = await mapGenerationTools.switchScene(args);
+
+                  break;
+
+                case 'generate-token-art':
+
+                  result = await tokenArtGenerationTools.handleGenerateTokenArt(args);
 
                   break;
 

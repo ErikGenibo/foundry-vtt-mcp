@@ -85,6 +85,14 @@ export class QueryHandlers {
     CONFIG.queries[`${modulePrefix}.toggleTokenCondition`] = this.handleToggleTokenCondition.bind(this);
     CONFIG.queries[`${modulePrefix}.getAvailableConditions`] = this.handleGetAvailableConditions.bind(this);
 
+    // Tile manipulation queries
+    CONFIG.queries[`${modulePrefix}.createTile`] = this.handleCreateTile.bind(this);
+    CONFIG.queries[`${modulePrefix}.moveTile`] = this.handleMoveTile.bind(this);
+    CONFIG.queries[`${modulePrefix}.updateTile`] = this.handleUpdateTile.bind(this);
+    CONFIG.queries[`${modulePrefix}.deleteTiles`] = this.handleDeleteTiles.bind(this);
+    CONFIG.queries[`${modulePrefix}.listTiles`] = this.handleListTiles.bind(this);
+    CONFIG.queries[`${modulePrefix}.getTileDetails`] = this.handleGetTileDetails.bind(this);
+
     // Map generation queries (hybrid architecture)
     CONFIG.queries[`${modulePrefix}.generate-map`] = this.handleGenerateMap.bind(this);
     CONFIG.queries[`${modulePrefix}.check-map-status`] = this.handleCheckMapStatus.bind(this);
@@ -96,6 +104,10 @@ export class QueryHandlers {
 
     // Character search queries
     CONFIG.queries[`${modulePrefix}.searchCharacterItems`] = this.handleSearchCharacterItems.bind(this);
+
+    // Token art generation queries
+    CONFIG.queries[`${modulePrefix}.upload-generated-token`] = this.handleUploadGeneratedToken.bind(this);
+    CONFIG.queries[`${modulePrefix}.updateActorImage`] = this.handleUpdateActorImage.bind(this);
 
   }
 
@@ -1192,6 +1204,118 @@ export class QueryHandlers {
     }
   }
 
+  // ============================================
+  // Tile Manipulation Handlers
+  // ============================================
+
+  /**
+   * Handle create tile request
+   */
+  private async handleCreateTile(data: any): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.createTile(data);
+    } catch (error) {
+      throw new Error(`Failed to create tile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle move tile request
+   */
+  private async handleMoveTile(data: any): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.moveTile(data.tileId, data.x, data.y);
+    } catch (error) {
+      throw new Error(`Failed to move tile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle update tile request
+   */
+  private async handleUpdateTile(data: any): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.updateTile(data.tileId, data.updates);
+    } catch (error) {
+      throw new Error(`Failed to update tile: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle delete tiles request
+   */
+  private async handleDeleteTiles(data: any): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.deleteTiles(data.tileIds);
+    } catch (error) {
+      throw new Error(`Failed to delete tiles: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle list tiles request
+   */
+  private async handleListTiles(data: any): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.listTiles(data.includeHidden);
+    } catch (error) {
+      throw new Error(`Failed to list tiles: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle get tile details request
+   */
+  private async handleGetTileDetails(data: any): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.getTileDetails(data.tileId);
+    } catch (error) {
+      throw new Error(`Failed to get tile details: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
   /**
    * Handle use item request (cast spell, use ability, consume item, etc.)
    */
@@ -1265,6 +1389,192 @@ export class QueryHandlers {
       });
     } catch (error) {
       throw new Error(`Failed to search character items: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle upload of generated token art image
+   * Receives base64-encoded image data and saves it to ai-generated-tokens folder
+   */
+  private async handleUploadGeneratedToken(data: any): Promise<any> {
+    console.log(`[${MODULE_ID}] Upload generated token request received`, {
+      hasFilename: !!data.filename,
+      hasImageData: !!data.imageData,
+      imageDataLength: data.imageData?.length
+    });
+
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        console.error(`[${MODULE_ID}] Upload denied - not GM`);
+        return { error: 'Access denied', success: false };
+      }
+
+      if (!data.filename || typeof data.filename !== 'string') {
+        console.error(`[${MODULE_ID}] Upload failed - invalid filename`);
+        throw new Error('Filename is required and must be a string');
+      }
+
+      if (!data.imageData || typeof data.imageData !== 'string') {
+        console.error(`[${MODULE_ID}] Upload failed - invalid image data`);
+        throw new Error('Image data is required and must be a base64 string');
+      }
+
+      // Validate filename for security (prevent path traversal)
+      const safeFilename = data.filename.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+      if (!safeFilename.endsWith('.png') && !safeFilename.endsWith('.jpg') && !safeFilename.endsWith('.jpeg')) {
+        throw new Error('Only PNG and JPEG images are supported');
+      }
+
+      console.log(`[${MODULE_ID}] Converting base64 to blob...`, {
+        base64Length: data.imageData.length,
+        estimatedSizeMB: (data.imageData.length / 1024 / 1024).toFixed(2)
+      });
+
+      // Convert base64 to Blob
+      const byteCharacters = atob(data.imageData);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/png' });
+
+      // Create a File object from the Blob
+      const file = new File([blob], safeFilename, { type: 'image/png' });
+
+      // Upload to world-specific folder for token art
+      const worldId = (game as any).world?.id || 'unknown-world';
+      const uploadPath = `worlds/${worldId}/ai-generated-tokens`;
+
+      try {
+        const FilePickerAPI = (globalThis as any).foundry?.applications?.apps?.FilePicker?.implementation || (globalThis as any).FilePicker;
+        await FilePickerAPI.createDirectory('data', uploadPath, { bucket: null });
+        console.log(`[${MODULE_ID}] Directory created/verified: ${uploadPath}`);
+      } catch (dirError: any) {
+        // Directory might already exist, that's okay
+        if (!dirError.message?.includes('EEXIST') && !dirError.message?.includes('already exists')) {
+          console.warn(`[${MODULE_ID}] Directory creation warning:`, dirError.message);
+        }
+      }
+
+      // Upload using Foundry's FilePicker
+      const FilePickerAPI = (globalThis as any).foundry?.applications?.apps?.FilePicker?.implementation || (globalThis as any).FilePicker;
+      const response = await FilePickerAPI.upload(
+        'data',
+        uploadPath,
+        file,
+        {},
+        { notify: false }
+      );
+
+      console.log(`[${MODULE_ID}] Uploaded generated token art to:`, response.path);
+
+      return {
+        success: true,
+        path: response.path,
+        filename: safeFilename,
+        message: `Token art uploaded successfully to ${response.path}`
+      };
+
+    } catch (error: any) {
+      console.error(`[${MODULE_ID}] Failed to upload generated token art:`, error);
+      return {
+        error: error.message || 'Failed to upload generated token art',
+        success: false
+      };
+    }
+  }
+
+  /**
+   * Handle updating an actor's portrait image and optionally its tokens
+   */
+  private async handleUpdateActorImage(data: {
+    actorId?: string;
+    actorName?: string;
+    imagePath: string;
+    updateTokens?: boolean;
+  }): Promise<any> {
+    try {
+      // SECURITY: Silent GM validation
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      if (!data.imagePath) {
+        throw new Error('imagePath is required');
+      }
+
+      // Find actor by ID or name
+      let actor: any = null;
+      if (data.actorId) {
+        actor = game.actors?.get(data.actorId);
+      }
+      if (!actor && data.actorName) {
+        // Fuzzy search by name (case-insensitive partial match)
+        const searchName = data.actorName.toLowerCase();
+        actor = game.actors?.find((a: any) =>
+          a.name?.toLowerCase().includes(searchName) ||
+          a.name?.toLowerCase() === searchName
+        );
+      }
+
+      if (!actor) {
+        throw new Error(`Actor not found: ${data.actorId || data.actorName}`);
+      }
+
+      console.log(`[${MODULE_ID}] Updating actor image`, {
+        actorId: actor.id,
+        actorName: actor.name,
+        imagePath: data.imagePath,
+        updateTokens: data.updateTokens
+      });
+
+      // Update actor's portrait image and prototype token
+      await actor.update({
+        img: data.imagePath,
+        'prototypeToken.texture.src': data.imagePath
+      });
+
+      // Update placed tokens if requested (default: true)
+      let tokensUpdated = 0;
+      if (data.updateTokens !== false) {
+        const scenes = game.scenes?.contents || [];
+        for (const scene of scenes) {
+          const tokens = (scene as any).tokens?.filter((t: any) => t.actorId === actor.id) || [];
+          for (const token of tokens) {
+            try {
+              await token.update({ 'texture.src': data.imagePath });
+              tokensUpdated++;
+            } catch (tokenError) {
+              console.warn(`[${MODULE_ID}] Failed to update token in scene ${scene.name}:`, tokenError);
+            }
+          }
+        }
+      }
+
+      console.log(`[${MODULE_ID}] Actor image updated successfully`, {
+        actorId: actor.id,
+        actorName: actor.name,
+        tokensUpdated
+      });
+
+      return {
+        success: true,
+        actorId: actor.id,
+        actorName: actor.name,
+        imagePath: data.imagePath,
+        tokensUpdated
+      };
+
+    } catch (error: any) {
+      console.error(`[${MODULE_ID}] Failed to update actor image:`, error);
+      return {
+        error: error.message || 'Failed to update actor image',
+        success: false
+      };
     }
   }
 

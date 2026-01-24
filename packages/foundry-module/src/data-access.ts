@@ -5345,6 +5345,323 @@ export class FoundryDataAccess {
     }
   }
 
+  // ============================================
+  // Tile Manipulation Methods
+  // ============================================
+
+  /**
+   * Create a new tile on the current scene
+   */
+  async createTile(tileData: {
+    textureSrc: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    rotation?: number;
+    hidden?: boolean;
+    overhead?: boolean;
+    z?: number;
+  }): Promise<any> {
+    this.validateFoundryState();
+
+    // Use permission system
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    const scene = (game.scenes as any).current;
+    if (!scene) {
+      throw new Error('No active scene found');
+    }
+
+    try {
+      // Construct tile document data
+      const tileDocData: any = {
+        texture: {
+          src: tileData.textureSrc,
+        },
+        x: tileData.x,
+        y: tileData.y,
+        width: tileData.width,
+        height: tileData.height,
+        rotation: tileData.rotation || 0,
+        hidden: tileData.hidden || false,
+        overhead: tileData.overhead || false,
+        z: tileData.z || 100,
+      };
+
+      // Create the tile
+      const created = await scene.createEmbeddedDocuments('Tile', [tileDocData]);
+
+      if (!created || created.length === 0) {
+        throw new Error('Failed to create tile document');
+      }
+
+      const newTile = created[0];
+
+      this.auditLog('createTile', {
+        tileId: newTile.id,
+        textureSrc: tileData.textureSrc,
+        x: tileData.x,
+        y: tileData.y,
+      }, 'success');
+
+      return {
+        success: true,
+        tileId: newTile.id,
+        position: { x: tileData.x, y: tileData.y },
+        size: { width: tileData.width, height: tileData.height },
+      };
+    } catch (error) {
+      this.auditLog('createTile', tileData, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Move a tile to a new position
+   */
+  async moveTile(tileId: string, x: number, y: number): Promise<any> {
+    this.validateFoundryState();
+
+    // Use permission system
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {
+      targetIds: [tileId],
+    });
+
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    const scene = (game.scenes as any).current;
+    if (!scene) {
+      throw new Error('No active scene found');
+    }
+
+    const tile = scene.tiles.get(tileId);
+    if (!tile) {
+      throw new Error(`Tile ${tileId} not found in current scene`);
+    }
+
+    try {
+      await tile.update({ x, y });
+
+      this.auditLog('moveTile', { tileId, x, y }, 'success');
+
+      return {
+        success: true,
+        tileId,
+        newPosition: { x, y },
+      };
+    } catch (error) {
+      this.auditLog('moveTile', { tileId, x, y }, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Update tile properties
+   */
+  async updateTile(tileId: string, updates: any): Promise<any> {
+    this.validateFoundryState();
+
+    // Use permission system
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {
+      targetIds: [tileId],
+    });
+
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    const scene = (game.scenes as any).current;
+    if (!scene) {
+      throw new Error('No active scene found');
+    }
+
+    const tile = scene.tiles.get(tileId);
+    if (!tile) {
+      throw new Error(`Tile ${tileId} not found in current scene`);
+    }
+
+    try {
+      // Build update object
+      const updateData: any = {};
+
+      if (updates.x !== undefined) updateData.x = updates.x;
+      if (updates.y !== undefined) updateData.y = updates.y;
+      if (updates.width !== undefined) updateData.width = updates.width;
+      if (updates.height !== undefined) updateData.height = updates.height;
+      if (updates.rotation !== undefined) updateData.rotation = updates.rotation;
+      if (updates.hidden !== undefined) updateData.hidden = updates.hidden;
+      if (updates.overhead !== undefined) updateData.overhead = updates.overhead;
+      if (updates.z !== undefined) updateData.z = updates.z;
+      if (updates.textureSrc !== undefined) {
+        updateData.texture = { src: updates.textureSrc };
+      }
+
+      await tile.update(updateData);
+
+      this.auditLog('updateTile', { tileId, updates: updateData }, 'success');
+
+      return {
+        success: true,
+        tileId,
+        updated: true,
+      };
+    } catch (error) {
+      this.auditLog('updateTile', { tileId, updates }, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Delete one or more tiles from the current scene
+   */
+  async deleteTiles(tileIds: string[]): Promise<any> {
+    this.validateFoundryState();
+
+    // Use permission system
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {
+      targetIds: tileIds,
+    });
+
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    const scene = (game.scenes as any).current;
+    if (!scene) {
+      throw new Error('No active scene found');
+    }
+
+    try {
+      const deletedIds: string[] = [];
+      const errors: string[] = [];
+
+      for (const tileId of tileIds) {
+        const tile = scene.tiles.get(tileId);
+        if (!tile) {
+          errors.push(`Tile ${tileId} not found`);
+          continue;
+        }
+
+        try {
+          await tile.delete();
+          deletedIds.push(tileId);
+        } catch (deleteError) {
+          errors.push(`Failed to delete tile ${tileId}: ${deleteError instanceof Error ? deleteError.message : 'Unknown error'}`);
+        }
+      }
+
+      this.auditLog('deleteTiles', { tileIds, deletedCount: deletedIds.length }, 'success');
+
+      return {
+        success: deletedIds.length > 0,
+        deletedCount: deletedIds.length,
+        tileIds: deletedIds,
+        errors: errors.length > 0 ? errors : undefined,
+      };
+    } catch (error) {
+      this.auditLog('deleteTiles', { tileIds }, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * List all tiles on the current scene
+   */
+  async listTiles(includeHidden: boolean = true): Promise<any> {
+    this.validateFoundryState();
+
+    const scene = (game.scenes as any).current;
+    if (!scene) {
+      throw new Error('No active scene found');
+    }
+
+    try {
+      const tiles: any[] = [];
+
+      for (const tile of scene.tiles) {
+        if (!includeHidden && tile.hidden) {
+          continue;
+        }
+
+        tiles.push({
+          id: tile.id,
+          x: tile.x,
+          y: tile.y,
+          width: tile.width,
+          height: tile.height,
+          rotation: tile.rotation || 0,
+          hidden: tile.hidden,
+          overhead: tile.overhead || false,
+          z: tile.z || 0,
+          textureSrc: tile.texture?.src || '',
+        });
+      }
+
+      this.auditLog('listTiles', { count: tiles.length, includeHidden }, 'success');
+
+      return {
+        success: true,
+        tiles,
+      };
+    } catch (error) {
+      this.auditLog('listTiles', { includeHidden }, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get detailed information about a specific tile
+   */
+  async getTileDetails(tileId: string): Promise<any> {
+    this.validateFoundryState();
+
+    const scene = (game.scenes as any).current;
+    if (!scene) {
+      throw new Error('No active scene found');
+    }
+
+    const tile = scene.tiles.get(tileId);
+    if (!tile) {
+      throw new Error(`Tile ${tileId} not found in current scene`);
+    }
+
+    try {
+      const tileData = {
+        id: tile.id,
+        x: tile.x,
+        y: tile.y,
+        width: tile.width,
+        height: tile.height,
+        rotation: tile.rotation || 0,
+        hidden: tile.hidden,
+        overhead: tile.overhead || false,
+        roof: tile.roof || false,
+        z: tile.z || 0,
+        texture: {
+          src: tile.texture?.src || '',
+          scaleX: tile.texture?.scaleX || 1,
+          scaleY: tile.texture?.scaleY || 1,
+        },
+        occlusion: tile.occlusion || {},
+        alpha: tile.alpha || 1,
+      };
+
+      this.auditLog('getTileDetails', { tileId }, 'success');
+
+      return tileData;
+    } catch (error) {
+      this.auditLog('getTileDetails', { tileId }, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
   /**
    * Use an item on a character (cast spell, use ability, consume item, etc.)
    * This triggers the item's default use behavior in Foundry VTT
