@@ -20,7 +20,7 @@ jobs:
         run: npm ci
 
       - name: Build foundry module
-        run: npm run build --workspace=foundry-mcp-bridge
+        run: npm run build --workspace=@foundry-mcp/module
 
       - name: Create module zip
         run: |
