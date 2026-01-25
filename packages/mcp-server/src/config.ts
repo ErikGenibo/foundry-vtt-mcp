@@ -48,6 +48,11 @@ const ConfigSchema = z.object({
     name: z.string().default('foundry-mcp-server'),
     version: z.string().default('0.4.17'),
   }),
+  gemini: z.object({
+    apiKey: z.string().optional(),
+    model: z.enum(['gemini-2.5-flash-image', 'gemini-3-pro-image-preview']).default('gemini-2.5-flash-image'),
+    enabled: z.boolean().default(false),
+  }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -85,6 +90,11 @@ const rawConfig = {
   server: {
     name: process.env.SERVER_NAME || 'foundry-mcp-server',
     version: process.env.SERVER_VERSION || '1.0.0',
+  },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY,
+    model: (process.env.GEMINI_MODEL || 'gemini-2.5-flash-image') as 'gemini-2.5-flash-image' | 'gemini-3-pro-image-preview',
+    enabled: !!process.env.GEMINI_API_KEY,
   },
 };
 

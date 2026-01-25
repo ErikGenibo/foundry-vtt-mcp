@@ -109,6 +109,44 @@ export class QueryHandlers {
     CONFIG.queries[`${modulePrefix}.upload-generated-token`] = this.handleUploadGeneratedToken.bind(this);
     CONFIG.queries[`${modulePrefix}.updateActorImage`] = this.handleUpdateActorImage.bind(this);
 
+    // Chat tools queries
+    CONFIG.queries[`${modulePrefix}.sendChatMessage`] = this.handleSendChatMessage.bind(this);
+    CONFIG.queries[`${modulePrefix}.getChatHistory`] = this.handleGetChatHistory.bind(this);
+    CONFIG.queries[`${modulePrefix}.narrate`] = this.handleNarrate.bind(this);
+
+    // Combat management queries
+    CONFIG.queries[`${modulePrefix}.createCombat`] = this.handleCreateCombat.bind(this);
+    CONFIG.queries[`${modulePrefix}.getCombatState`] = this.handleGetCombatState.bind(this);
+    CONFIG.queries[`${modulePrefix}.addCombatants`] = this.handleAddCombatants.bind(this);
+    CONFIG.queries[`${modulePrefix}.removeCombatants`] = this.handleRemoveCombatants.bind(this);
+    CONFIG.queries[`${modulePrefix}.rollInitiative`] = this.handleRollInitiative.bind(this);
+    CONFIG.queries[`${modulePrefix}.setInitiative`] = this.handleSetInitiative.bind(this);
+    CONFIG.queries[`${modulePrefix}.startCombat`] = this.handleStartCombat.bind(this);
+    CONFIG.queries[`${modulePrefix}.nextTurn`] = this.handleNextTurn.bind(this);
+    CONFIG.queries[`${modulePrefix}.previousTurn`] = this.handlePreviousTurn.bind(this);
+    CONFIG.queries[`${modulePrefix}.endCombat`] = this.handleEndCombat.bind(this);
+    CONFIG.queries[`${modulePrefix}.applyDamage`] = this.handleApplyDamage.bind(this);
+    CONFIG.queries[`${modulePrefix}.applyTempHp`] = this.handleApplyTempHp.bind(this);
+    CONFIG.queries[`${modulePrefix}.listCombats`] = this.handleListCombats.bind(this);
+    CONFIG.queries[`${modulePrefix}.setActiveCombat`] = this.handleSetActiveCombat.bind(this);
+
+    // Audio/Playlist tools queries
+    CONFIG.queries[`${modulePrefix}.listPlaylists`] = this.handleListPlaylists.bind(this);
+    CONFIG.queries[`${modulePrefix}.playPlaylist`] = this.handlePlayPlaylist.bind(this);
+    CONFIG.queries[`${modulePrefix}.stopPlaylist`] = this.handleStopPlaylist.bind(this);
+    CONFIG.queries[`${modulePrefix}.setPlaylistVolume`] = this.handleSetPlaylistVolume.bind(this);
+    CONFIG.queries[`${modulePrefix}.getPlayingAudio`] = this.handleGetPlayingAudio.bind(this);
+
+    // Rollable Table tools queries
+    CONFIG.queries[`${modulePrefix}.listTables`] = this.handleListTables.bind(this);
+    CONFIG.queries[`${modulePrefix}.rollTable`] = this.handleRollTable.bind(this);
+    CONFIG.queries[`${modulePrefix}.getTableContents`] = this.handleGetTableContents.bind(this);
+
+    // Macro tools queries
+    CONFIG.queries[`${modulePrefix}.listMacros`] = this.handleListMacros.bind(this);
+    CONFIG.queries[`${modulePrefix}.executeMacro`] = this.handleExecuteMacro.bind(this);
+    CONFIG.queries[`${modulePrefix}.getMacroDetails`] = this.handleGetMacroDetails.bind(this);
+
   }
 
   /**
@@ -1575,6 +1613,589 @@ export class QueryHandlers {
         error: error.message || 'Failed to update actor image',
         success: false
       };
+    }
+  }
+
+  // ============================================
+  // Chat Tools Handlers
+  // ============================================
+
+  /**
+   * Handle send chat message request
+   */
+  private async handleSendChatMessage(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.content) {
+        throw new Error('content is required');
+      }
+
+      return await this.dataAccess.sendChatMessage(data);
+    } catch (error) {
+      throw new Error(`Failed to send chat message: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle get chat history request
+   */
+  private async handleGetChatHistory(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.getChatHistory(data);
+    } catch (error) {
+      throw new Error(`Failed to get chat history: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle narrate request
+   */
+  private async handleNarrate(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.text) {
+        throw new Error('text is required');
+      }
+
+      return await this.dataAccess.narrate(data);
+    } catch (error) {
+      throw new Error(`Failed to send narration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // ============================================
+  // Combat Management Handlers
+  // ============================================
+
+  /**
+   * Handle create combat request
+   */
+  private async handleCreateCombat(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.createCombat(data);
+    } catch (error) {
+      throw new Error(`Failed to create combat: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle get combat state request
+   */
+  private async handleGetCombatState(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.getCombatState(data);
+    } catch (error) {
+      throw new Error(`Failed to get combat state: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle add combatants request
+   */
+  private async handleAddCombatants(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.tokenIds || !Array.isArray(data.tokenIds) || data.tokenIds.length === 0) {
+        throw new Error('tokenIds array is required');
+      }
+
+      return await this.dataAccess.addCombatants(data);
+    } catch (error) {
+      throw new Error(`Failed to add combatants: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle remove combatants request
+   */
+  private async handleRemoveCombatants(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.combatantIds || !Array.isArray(data.combatantIds) || data.combatantIds.length === 0) {
+        throw new Error('combatantIds array is required');
+      }
+
+      return await this.dataAccess.removeCombatants(data);
+    } catch (error) {
+      throw new Error(`Failed to remove combatants: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle roll initiative request
+   */
+  private async handleRollInitiative(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.rollInitiative(data);
+    } catch (error) {
+      throw new Error(`Failed to roll initiative: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle set initiative request
+   */
+  private async handleSetInitiative(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.combatantId) {
+        throw new Error('combatantId is required');
+      }
+      if (data.initiative === undefined || data.initiative === null) {
+        throw new Error('initiative value is required');
+      }
+
+      return await this.dataAccess.setInitiative(data);
+    } catch (error) {
+      throw new Error(`Failed to set initiative: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle start combat request
+   */
+  private async handleStartCombat(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.startCombat(data);
+    } catch (error) {
+      throw new Error(`Failed to start combat: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle next turn request
+   */
+  private async handleNextTurn(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.nextTurn(data);
+    } catch (error) {
+      throw new Error(`Failed to advance turn: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle previous turn request
+   */
+  private async handlePreviousTurn(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.previousTurn(data);
+    } catch (error) {
+      throw new Error(`Failed to go to previous turn: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle end combat request
+   */
+  private async handleEndCombat(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.endCombat(data);
+    } catch (error) {
+      throw new Error(`Failed to end combat: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle apply damage request
+   */
+  private async handleApplyDamage(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.targetId) {
+        throw new Error('targetId is required');
+      }
+      if (data.amount === undefined || data.amount === null) {
+        throw new Error('amount is required');
+      }
+
+      return await this.dataAccess.applyDamage(data);
+    } catch (error) {
+      throw new Error(`Failed to apply damage: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle apply temp HP request
+   */
+  private async handleApplyTempHp(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.targetId) {
+        throw new Error('targetId is required');
+      }
+      if (data.amount === undefined || data.amount === null || data.amount < 0) {
+        throw new Error('amount is required and must be non-negative');
+      }
+
+      return await this.dataAccess.applyTempHp(data);
+    } catch (error) {
+      throw new Error(`Failed to apply temp HP: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle list combats request
+   */
+  private async handleListCombats(_data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.listCombats();
+    } catch (error) {
+      throw new Error(`Failed to list combats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle set active combat request
+   */
+  private async handleSetActiveCombat(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.combatId) {
+        throw new Error('combatId is required');
+      }
+
+      return await this.dataAccess.setActiveCombat(data);
+    } catch (error) {
+      throw new Error(`Failed to set active combat: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // ============================================
+  // Audio/Playlist Tools Handlers
+  // ============================================
+
+  /**
+   * Handle list playlists request
+   */
+  private async handleListPlaylists(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.listPlaylists(data);
+    } catch (error) {
+      throw new Error(`Failed to list playlists: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle play playlist request
+   */
+  private async handlePlayPlaylist(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.playlistId) {
+        throw new Error('playlistId is required');
+      }
+
+      return await this.dataAccess.playPlaylist(data);
+    } catch (error) {
+      throw new Error(`Failed to play playlist: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle stop playlist request
+   */
+  private async handleStopPlaylist(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.playlistId) {
+        throw new Error('playlistId is required');
+      }
+
+      return await this.dataAccess.stopPlaylist(data);
+    } catch (error) {
+      throw new Error(`Failed to stop playlist: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle set playlist volume request
+   */
+  private async handleSetPlaylistVolume(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.playlistId) {
+        throw new Error('playlistId is required');
+      }
+      if (data.volume === undefined || data.volume === null) {
+        throw new Error('volume is required');
+      }
+
+      return await this.dataAccess.setPlaylistVolume(data);
+    } catch (error) {
+      throw new Error(`Failed to set playlist volume: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle get playing audio request
+   */
+  private async handleGetPlayingAudio(_data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.getPlayingAudio();
+    } catch (error) {
+      throw new Error(`Failed to get playing audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // ============================================
+  // Rollable Table Tools Handlers
+  // ============================================
+
+  /**
+   * Handle list tables request
+   */
+  private async handleListTables(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.listTables(data);
+    } catch (error) {
+      throw new Error(`Failed to list tables: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle roll table request
+   */
+  private async handleRollTable(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.tableId) {
+        throw new Error('tableId is required');
+      }
+
+      return await this.dataAccess.rollTable(data);
+    } catch (error) {
+      throw new Error(`Failed to roll table: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle get table contents request
+   */
+  private async handleGetTableContents(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.tableId) {
+        throw new Error('tableId is required');
+      }
+
+      return await this.dataAccess.getTableContents(data);
+    } catch (error) {
+      throw new Error(`Failed to get table contents: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  // ============================================
+  // Macro Tools Handlers
+  // ============================================
+
+  /**
+   * Handle list macros request
+   */
+  private async handleListMacros(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+      return await this.dataAccess.listMacros(data);
+    } catch (error) {
+      throw new Error(`Failed to list macros: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle execute macro request
+   */
+  private async handleExecuteMacro(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.macroId) {
+        throw new Error('macroId is required');
+      }
+
+      return await this.dataAccess.executeMacro(data);
+    } catch (error) {
+      throw new Error(`Failed to execute macro: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle get macro details request
+   */
+  private async handleGetMacroDetails(data: any): Promise<any> {
+    try {
+      const gmCheck = this.validateGMAccess();
+      if (!gmCheck.allowed) {
+        return { error: 'Access denied', success: false };
+      }
+
+      this.dataAccess.validateFoundryState();
+
+      if (!data.macroId) {
+        throw new Error('macroId is required');
+      }
+
+      return await this.dataAccess.getMacroDetails(data);
+    } catch (error) {
+      throw new Error(`Failed to get macro details: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

@@ -5888,4 +5888,1460 @@ export class FoundryDataAccess {
     }
   }
 
+  // ============================================
+  // Chat Tools Methods
+  // ============================================
+
+  /**
+   * Send a chat message
+   */
+  async sendChatMessage(data: {
+    content: string;
+    speaker?: { alias?: string; actorId?: string; tokenId?: string };
+    messageType?: 'ic' | 'ooc' | 'emote' | 'whisper';
+    whisperTo?: string[];
+    flavor?: string;
+  }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Build speaker data
+      let speakerData: any = ChatMessage.getSpeaker();
+
+      if (data.speaker) {
+        if (data.speaker.actorId) {
+          const actor = game.actors?.get(data.speaker.actorId);
+          if (actor) {
+            speakerData = ChatMessage.getSpeaker({ actor });
+          }
+        } else if (data.speaker.tokenId) {
+          const scene = (game.scenes as any).current;
+          const token = scene?.tokens?.get(data.speaker.tokenId);
+          if (token) {
+            speakerData = ChatMessage.getSpeaker({ token });
+          }
+        }
+
+        // Override with alias if provided
+        if (data.speaker.alias) {
+          speakerData.alias = data.speaker.alias;
+        }
+      }
+
+      // Build whisper targets
+      let whisperTargets: string[] = [];
+      if (data.whisperTo && data.whisperTo.length > 0) {
+        for (const target of data.whisperTo) {
+          if (target.toLowerCase() === 'gm') {
+            // Add all GMs
+            const gmUsers = game.users?.filter((u: User) => u.isGM);
+            if (gmUsers) {
+              whisperTargets.push(...gmUsers.map((u: User) => u.id!).filter(Boolean));
+            }
+          } else {
+            // Find user by name
+            const user = game.users?.find((u: User) => {
+              const userName = u.name?.toLowerCase() || '';
+              const targetLower = target.toLowerCase();
+              return userName === targetLower || userName.includes(targetLower);
+            });
+            if (user?.id) {
+              whisperTargets.push(user.id);
+            }
+          }
+        }
+      }
+
+      // Determine message style based on type
+      let style = (CONST as any).CHAT_MESSAGE_STYLES?.OTHER || 0;
+      if (data.messageType === 'ic') {
+        style = (CONST as any).CHAT_MESSAGE_STYLES?.IC || 2;
+      } else if (data.messageType === 'ooc') {
+        style = (CONST as any).CHAT_MESSAGE_STYLES?.OOC || 1;
+      } else if (data.messageType === 'emote') {
+        style = (CONST as any).CHAT_MESSAGE_STYLES?.EMOTE || 3;
+      }
+
+      // Build message data
+      const messageData: any = {
+        content: data.content,
+        speaker: speakerData,
+        style: style,
+      };
+
+      if (data.flavor) {
+        messageData.flavor = data.flavor;
+      }
+
+      if (whisperTargets.length > 0) {
+        messageData.whisper = whisperTargets;
+      }
+
+      const chatMessage = await ChatMessage.create(messageData);
+
+      this.auditLog('sendChatMessage', {
+        messageId: chatMessage?.id,
+        speaker: speakerData.alias,
+        type: data.messageType
+      }, 'success');
+
+      return {
+        messageId: chatMessage?.id,
+        speaker: speakerData.alias || speakerData.actor || 'Unknown',
+      };
+    } catch (error) {
+      this.auditLog('sendChatMessage', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get chat history
+   */
+  async getChatHistory(data: {
+    limit?: number;
+    speakerFilter?: string;
+    includeWhispers?: boolean;
+  }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      const limit = Math.min(data.limit || 20, 100);
+      const messages = game.messages?.contents || [];
+
+      // Filter and map messages
+      let filtered = messages.slice(-limit * 2); // Get more than needed for filtering
+
+      // Filter by speaker if specified
+      if (data.speakerFilter) {
+        const filterLower = data.speakerFilter.toLowerCase();
+        filtered = filtered.filter((msg: any) => {
+          const speaker = msg.speaker?.alias || msg.speaker?.actor || '';
+          return speaker.toLowerCase().includes(filterLower);
+        });
+      }
+
+      // Filter whispers unless GM and includeWhispers is true
+      if (!data.includeWhispers) {
+        filtered = filtered.filter((msg: any) => {
+          return !msg.whisper || msg.whisper.length === 0;
+        });
+      }
+
+      // Take the last 'limit' messages
+      filtered = filtered.slice(-limit);
+
+      const result = filtered.map((msg: any) => ({
+        id: msg.id,
+        content: msg.content,
+        speaker: msg.speaker?.alias || msg.speaker?.actor || 'Unknown',
+        timestamp: msg.timestamp,
+        isWhisper: msg.whisper && msg.whisper.length > 0,
+        type: this.getChatMessageTypeName(msg.style),
+      }));
+
+      return {
+        messages: result,
+      };
+    } catch (error) {
+      throw new Error(`Failed to get chat history: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Send a narration message
+   */
+  async narrate(data: {
+    text: string;
+    title?: string;
+    whisperTo?: string[];
+  }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Build narrative HTML with distinct styling
+      let content = `<div class="mcp-narration" style="
+        background: linear-gradient(135deg, #2c1810 0%, #1a0f0a 100%);
+        border: 2px solid #8b4513;
+        border-radius: 8px;
+        padding: 15px;
+        margin: 5px 0;
+        color: #f4e4bc;
+        font-style: italic;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+      ">`;
+
+      if (data.title) {
+        content += `<h3 style="
+          margin: 0 0 10px 0;
+          color: #d4a574;
+          font-style: normal;
+          border-bottom: 1px solid #8b4513;
+          padding-bottom: 5px;
+        ">${data.title}</h3>`;
+      }
+
+      content += `<p style="margin: 0; line-height: 1.6;">${data.text}</p>`;
+      content += `</div>`;
+
+      // Build whisper targets if specified
+      let whisperTargets: string[] = [];
+      if (data.whisperTo && data.whisperTo.length > 0) {
+        for (const target of data.whisperTo) {
+          if (target.toLowerCase() === 'gm') {
+            const gmUsers = game.users?.filter((u: User) => u.isGM);
+            if (gmUsers) {
+              whisperTargets.push(...gmUsers.map((u: User) => u.id!).filter(Boolean));
+            }
+          } else {
+            const user = game.users?.find((u: User) => {
+              const userName = u.name?.toLowerCase() || '';
+              const targetLower = target.toLowerCase();
+              return userName === targetLower || userName.includes(targetLower);
+            });
+            if (user?.id) {
+              whisperTargets.push(user.id);
+            }
+          }
+        }
+      }
+
+      const messageData: any = {
+        content: content,
+        speaker: { alias: 'Narrator' },
+        style: (CONST as any).CHAT_MESSAGE_STYLES?.OTHER || 0,
+      };
+
+      if (whisperTargets.length > 0) {
+        messageData.whisper = whisperTargets;
+      }
+
+      const chatMessage = await ChatMessage.create(messageData);
+
+      this.auditLog('narrate', { messageId: chatMessage?.id, hasTitle: !!data.title }, 'success');
+
+      return {
+        messageId: chatMessage?.id,
+      };
+    } catch (error) {
+      this.auditLog('narrate', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get chat message type name from style number
+   */
+  private getChatMessageTypeName(style: number): string {
+    const styles: Record<number, string> = {
+      0: 'other',
+      1: 'ooc',
+      2: 'ic',
+      3: 'emote',
+    };
+    return styles[style] || 'unknown';
+  }
+
+  // ============================================
+  // Combat Management Methods
+  // ============================================
+
+  /**
+   * Create a new combat encounter
+   */
+  async createCombat(data: { sceneId?: string; activate?: boolean }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const scene = data.sceneId
+        ? game.scenes?.get(data.sceneId)
+        : game.scenes?.find(s => s.active);
+
+      if (!scene) {
+        throw new Error(data.sceneId ? `Scene not found: ${data.sceneId}` : 'No active scene');
+      }
+
+      const combatData: any = {
+        scene: scene.id,
+        active: data.activate || false,
+      };
+
+      const combat = await (Combat as any).create(combatData);
+
+      this.auditLog('createCombat', { combatId: combat.id, sceneId: scene.id }, 'success');
+
+      return {
+        combatId: combat.id,
+        sceneName: scene.name,
+        active: combat.active,
+      };
+    } catch (error) {
+      this.auditLog('createCombat', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get the current combat state
+   */
+  async getCombatState(data: { combatId?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        return { combat: null };
+      }
+
+      const combatants = combat.combatants.map((c: any) => {
+        const actor = c.actor;
+        const token = c.token;
+
+        // Get HP data (system-agnostic approach)
+        let hp = null;
+        if (actor?.system?.attributes?.hp) {
+          hp = {
+            current: actor.system.attributes.hp.value ?? actor.system.attributes.hp.current ?? 0,
+            max: actor.system.attributes.hp.max ?? 0,
+            temp: actor.system.attributes.hp.temp ?? 0,
+          };
+        }
+
+        // Get active conditions
+        const conditions: string[] = [];
+        if (actor?.effects) {
+          for (const effect of actor.effects) {
+            if (!(effect as any).disabled) {
+              conditions.push((effect as any).name || (effect as any).label || 'Unknown Effect');
+            }
+          }
+        }
+
+        return {
+          id: c.id,
+          name: c.name,
+          tokenId: c.tokenId,
+          actorId: c.actorId,
+          initiative: c.initiative,
+          isNpc: !actor?.hasPlayerOwner,
+          isDefeated: c.isDefeated,
+          isVisible: !token?.hidden,
+          hp,
+          conditions,
+          disposition: token?.disposition ?? 0,
+        };
+      });
+
+      // Get turn order (sorted by initiative)
+      const turnOrder = combat.turns.map((c: any) => ({
+        id: c.id,
+        name: c.name,
+        initiative: c.initiative,
+      }));
+
+      // Get current combatant info
+      const currentCombatant = combat.combatant ? {
+        id: combat.combatant.id,
+        name: combat.combatant.name,
+        initiative: combat.combatant.initiative,
+      } : null;
+
+      return {
+        combat: {
+          id: combat.id,
+          round: combat.round,
+          turn: combat.turn,
+          started: combat.started,
+          active: combat.active,
+          sceneName: combat.scene?.name || 'Unknown',
+          currentCombatant,
+          combatants,
+          turnOrder,
+        },
+      };
+    } catch (error) {
+      throw new Error(`Failed to get combat state: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Add combatants to combat
+   */
+  async addCombatants(data: { combatId?: string; tokenIds: string[] }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      const combatantData = data.tokenIds.map(tokenId => ({
+        tokenId,
+        sceneId: combat.scene?.id,
+      }));
+
+      const created = await combat.createEmbeddedDocuments('Combatant', combatantData);
+
+      const combatants = (created as any[]).map(c => ({
+        id: c.id,
+        name: c.name,
+        tokenId: c.tokenId,
+      }));
+
+      this.auditLog('addCombatants', { combatId: combat.id, added: created.length }, 'success');
+
+      return {
+        added: created.length,
+        combatants,
+      };
+    } catch (error) {
+      this.auditLog('addCombatants', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Remove combatants from combat
+   */
+  async removeCombatants(data: { combatId?: string; combatantIds: string[] }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      await combat.deleteEmbeddedDocuments('Combatant', data.combatantIds);
+
+      this.auditLog('removeCombatants', { combatId: combat.id, removed: data.combatantIds.length }, 'success');
+
+      return {
+        removed: data.combatantIds.length,
+      };
+    } catch (error) {
+      this.auditLog('removeCombatants', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Roll initiative for combatants
+   */
+  async rollInitiative(data: {
+    combatId?: string;
+    rollFor?: 'all' | 'npcs' | 'specific';
+    combatantIds?: string[];
+    formula?: string;
+  }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      let combatantIds: string[] = [];
+      const rollFor = data.rollFor || 'all';
+
+      if (rollFor === 'all') {
+        combatantIds = combat.combatants.map((c: any) => c.id);
+      } else if (rollFor === 'npcs') {
+        combatantIds = combat.combatants
+          .filter((c: any) => !c.actor?.hasPlayerOwner)
+          .map((c: any) => c.id);
+      } else if (rollFor === 'specific' && data.combatantIds) {
+        combatantIds = data.combatantIds;
+      }
+
+      if (combatantIds.length === 0) {
+        return { rolled: 0, results: [] };
+      }
+
+      const options: any = {};
+      if (data.formula) {
+        options.formula = data.formula;
+      }
+
+      await combat.rollInitiative(combatantIds, options);
+
+      // Get the updated initiative values
+      const results = combatantIds.map(id => {
+        const combatant = combat.combatants.get(id);
+        return {
+          id,
+          name: combatant?.name || 'Unknown',
+          initiative: combatant?.initiative,
+        };
+      });
+
+      this.auditLog('rollInitiative', { combatId: combat.id, rolled: combatantIds.length }, 'success');
+
+      return {
+        rolled: combatantIds.length,
+        results,
+      };
+    } catch (error) {
+      this.auditLog('rollInitiative', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Set initiative for a specific combatant
+   */
+  async setInitiative(data: { combatId?: string; combatantId: string; initiative: number }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      const combatant = combat.combatants.get(data.combatantId);
+      if (!combatant) {
+        throw new Error(`Combatant not found: ${data.combatantId}`);
+      }
+
+      await combatant.update({ initiative: data.initiative });
+
+      this.auditLog('setInitiative', { combatantId: data.combatantId, initiative: data.initiative }, 'success');
+
+      return {
+        combatantName: combatant.name,
+        initiative: data.initiative,
+      };
+    } catch (error) {
+      this.auditLog('setInitiative', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Start combat encounter
+   */
+  async startCombat(data: { combatId?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      await combat.startCombat();
+
+      const currentCombatant = combat.combatant?.name || 'Unknown';
+
+      this.auditLog('startCombat', { combatId: combat.id }, 'success');
+
+      return {
+        round: combat.round,
+        turn: combat.turn,
+        currentCombatant,
+      };
+    } catch (error) {
+      this.auditLog('startCombat', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Advance to next turn
+   */
+  async nextTurn(data: { combatId?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      const previousRound = combat.round;
+      await combat.nextTurn();
+
+      const newRound = combat.round > previousRound;
+      const currentCombatant = combat.combatant?.name || 'Unknown';
+
+      this.auditLog('nextTurn', { combatId: combat.id, round: combat.round, turn: combat.turn }, 'success');
+
+      return {
+        round: combat.round,
+        turn: combat.turn,
+        currentCombatant,
+        newRound,
+      };
+    } catch (error) {
+      this.auditLog('nextTurn', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Go to previous turn
+   */
+  async previousTurn(data: { combatId?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      await combat.previousTurn();
+
+      const currentCombatant = combat.combatant?.name || 'Unknown';
+
+      this.auditLog('previousTurn', { combatId: combat.id, round: combat.round, turn: combat.turn }, 'success');
+
+      return {
+        round: combat.round,
+        turn: combat.turn,
+        currentCombatant,
+      };
+    } catch (error) {
+      this.auditLog('previousTurn', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * End combat encounter
+   */
+  async endCombat(data: { combatId?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = data.combatId
+        ? game.combats?.get(data.combatId)
+        : game.combat;
+
+      if (!combat) {
+        throw new Error('No combat found');
+      }
+
+      const finalRound = combat.round;
+      await combat.delete();
+
+      this.auditLog('endCombat', { combatId: data.combatId, finalRound }, 'success');
+
+      return {
+        finalRound,
+      };
+    } catch (error) {
+      this.auditLog('endCombat', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Apply damage or healing to a target
+   */
+  async applyDamage(data: {
+    targetId: string;
+    amount: number;
+    damageType?: string;
+    bypassResistance?: boolean;
+  }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {
+      targetIds: [data.targetId],
+    });
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Try to find as token first, then as actor
+      const scene = (game.scenes as any).current;
+      let actor: any = null;
+      let targetName = 'Unknown';
+
+      if (scene) {
+        const token = scene.tokens.get(data.targetId);
+        if (token) {
+          actor = token.actor;
+          targetName = token.name || actor?.name || 'Unknown';
+        }
+      }
+
+      if (!actor) {
+        actor = game.actors?.get(data.targetId);
+        targetName = actor?.name || 'Unknown';
+      }
+
+      if (!actor) {
+        throw new Error(`Target not found: ${data.targetId}`);
+      }
+
+      // Get current HP (system-agnostic)
+      const hp = actor.system?.attributes?.hp;
+      if (!hp) {
+        throw new Error(`Target "${targetName}" does not have HP attribute`);
+      }
+
+      const previousHp = hp.value ?? hp.current ?? 0;
+      const maxHp = hp.max ?? 0;
+      const tempHp = hp.temp ?? 0;
+
+      // Calculate new HP
+      let appliedAmount = data.amount;
+      let newHp = previousHp;
+      let newTempHp = tempHp;
+
+      if (data.amount > 0) {
+        // Damage - first remove from temp HP
+        if (tempHp > 0) {
+          const tempDamage = Math.min(tempHp, data.amount);
+          newTempHp = tempHp - tempDamage;
+          appliedAmount = data.amount - tempDamage;
+        }
+        newHp = Math.max(0, previousHp - appliedAmount);
+      } else {
+        // Healing (negative damage)
+        newHp = Math.min(maxHp, previousHp - data.amount);
+        appliedAmount = previousHp - newHp; // Actual healing done
+      }
+
+      // Update actor HP
+      const updateData: any = {};
+      if (hp.value !== undefined) {
+        updateData['system.attributes.hp.value'] = newHp;
+      } else {
+        updateData['system.attributes.hp.current'] = newHp;
+      }
+      if (newTempHp !== tempHp) {
+        updateData['system.attributes.hp.temp'] = newTempHp;
+      }
+
+      await actor.update(updateData);
+
+      this.auditLog('applyDamage', {
+        targetId: data.targetId,
+        amount: data.amount,
+        applied: appliedAmount,
+        previousHp,
+        newHp
+      }, 'success');
+
+      return {
+        targetName,
+        previousHp,
+        currentHp: newHp,
+        maxHp,
+        applied: Math.abs(data.amount > 0 ? data.amount : appliedAmount),
+      };
+    } catch (error) {
+      this.auditLog('applyDamage', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Apply temporary HP to a target
+   */
+  async applyTempHp(data: { targetId: string; amount: number }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {
+      targetIds: [data.targetId],
+    });
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Try to find as token first, then as actor
+      const scene = (game.scenes as any).current;
+      let actor: any = null;
+      let targetName = 'Unknown';
+
+      if (scene) {
+        const token = scene.tokens.get(data.targetId);
+        if (token) {
+          actor = token.actor;
+          targetName = token.name || actor?.name || 'Unknown';
+        }
+      }
+
+      if (!actor) {
+        actor = game.actors?.get(data.targetId);
+        targetName = actor?.name || 'Unknown';
+      }
+
+      if (!actor) {
+        throw new Error(`Target not found: ${data.targetId}`);
+      }
+
+      const hp = actor.system?.attributes?.hp;
+      if (!hp) {
+        throw new Error(`Target "${targetName}" does not have HP attribute`);
+      }
+
+      const previousTempHp = hp.temp ?? 0;
+      // Temp HP doesn't stack - only apply if higher
+      const newTempHp = Math.max(previousTempHp, data.amount);
+
+      await actor.update({ 'system.attributes.hp.temp': newTempHp });
+
+      this.auditLog('applyTempHp', { targetId: data.targetId, amount: data.amount, newTempHp }, 'success');
+
+      return {
+        targetName,
+        previousTempHp,
+        currentTempHp: newTempHp,
+      };
+    } catch (error) {
+      this.auditLog('applyTempHp', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * List all combat encounters
+   */
+  async listCombats(): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      const combats = Array.from(game.combats || []).map((combat: any) => ({
+        id: combat.id,
+        scene: combat.scene?.name || 'Unknown',
+        round: combat.round,
+        turn: combat.turn,
+        started: combat.started,
+        active: combat.active,
+        combatantCount: combat.combatants.size,
+      }));
+
+      const activeCombatId = game.combat?.id || null;
+
+      return {
+        activeCombatId,
+        combats,
+      };
+    } catch (error) {
+      throw new Error(`Failed to list combats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Set a combat as the active combat
+   */
+  async setActiveCombat(data: { combatId: string }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      const combat = game.combats?.get(data.combatId);
+      if (!combat) {
+        throw new Error(`Combat not found: ${data.combatId}`);
+      }
+
+      await combat.activate();
+
+      this.auditLog('setActiveCombat', { combatId: data.combatId }, 'success');
+
+      return {
+        combatId: combat.id,
+      };
+    } catch (error) {
+      this.auditLog('setActiveCombat', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  // ============================================
+  // Audio/Playlist Tools Methods
+  // ============================================
+
+  /**
+   * List all playlists in the world
+   */
+  async listPlaylists(data: { includeHidden?: boolean }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      const playlists = game.playlists?.contents || [];
+      const includeHidden = data?.includeHidden ?? false;
+
+      const playlistData = playlists
+        .filter((playlist: any) => includeHidden || !playlist.hidden)
+        .map((playlist: any) => ({
+          id: playlist.id,
+          name: playlist.name,
+          playing: playlist.playing,
+          mode: playlist.mode,
+          fade: playlist.fade,
+          folder: playlist.folder?.name || null,
+          sounds: playlist.sounds?.map((sound: any) => ({
+            id: sound.id,
+            name: sound.name,
+            playing: sound.playing,
+            volume: sound.volume,
+            repeat: sound.repeat,
+            path: sound.path,
+          })) || [],
+        }));
+
+      return {
+        playlists: playlistData,
+      };
+    } catch (error) {
+      this.auditLog('listPlaylists', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Play a playlist or specific sound
+   */
+  async playPlaylist(data: { playlistId: string; soundId?: string; fade?: number }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Find playlist by ID or name
+      let playlist = game.playlists?.get(data.playlistId);
+      if (!playlist) {
+        playlist = game.playlists?.find((p: any) =>
+          p.name?.toLowerCase() === data.playlistId.toLowerCase()
+        );
+      }
+      if (!playlist) {
+        throw new Error(`Playlist not found: ${data.playlistId}`);
+      }
+
+      let soundName: string | undefined;
+
+      if (data.soundId) {
+        // Play specific sound
+        let sound = playlist.sounds?.get(data.soundId);
+        if (!sound) {
+          sound = playlist.sounds?.find((s: any) =>
+            s.name?.toLowerCase() === data.soundId?.toLowerCase()
+          );
+        }
+        if (!sound) {
+          throw new Error(`Sound not found: ${data.soundId}`);
+        }
+        soundName = sound.name;
+        await playlist.playSound(sound, { fade: data.fade });
+      } else {
+        // Play entire playlist
+        await playlist.playAll({ fade: data.fade });
+      }
+
+      this.auditLog('playPlaylist', data, 'success');
+
+      return {
+        playlistName: playlist.name,
+        soundName: soundName,
+      };
+    } catch (error) {
+      this.auditLog('playPlaylist', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Stop a playlist or specific sound
+   */
+  async stopPlaylist(data: { playlistId: string; soundId?: string; fade?: number }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Handle "all" to stop all playlists
+      if (data.playlistId === 'all') {
+        const playlists = game.playlists?.contents || [];
+        for (const playlist of playlists) {
+          if (playlist.playing) {
+            await playlist.stopAll({ fade: data.fade });
+          }
+        }
+        this.auditLog('stopPlaylist', data, 'success');
+        return { stopped: true, playlistName: 'all' };
+      }
+
+      // Find playlist by ID or name
+      let playlist = game.playlists?.get(data.playlistId);
+      if (!playlist) {
+        playlist = game.playlists?.find((p: any) =>
+          p.name?.toLowerCase() === data.playlistId.toLowerCase()
+        );
+      }
+      if (!playlist) {
+        throw new Error(`Playlist not found: ${data.playlistId}`);
+      }
+
+      if (data.soundId) {
+        // Stop specific sound
+        let sound = playlist.sounds?.get(data.soundId);
+        if (!sound) {
+          sound = playlist.sounds?.find((s: any) =>
+            s.name?.toLowerCase() === data.soundId?.toLowerCase()
+          );
+        }
+        if (!sound) {
+          throw new Error(`Sound not found: ${data.soundId}`);
+        }
+        await playlist.stopSound(sound, { fade: data.fade });
+      } else {
+        // Stop entire playlist
+        await playlist.stopAll({ fade: data.fade });
+      }
+
+      this.auditLog('stopPlaylist', data, 'success');
+
+      return {
+        stopped: true,
+        playlistName: playlist.name,
+      };
+    } catch (error) {
+      this.auditLog('stopPlaylist', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Set volume for a playlist or specific sound
+   */
+  async setPlaylistVolume(data: { playlistId: string; soundId?: string; volume: number }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Find playlist by ID or name
+      let playlist = game.playlists?.get(data.playlistId);
+      if (!playlist) {
+        playlist = game.playlists?.find((p: any) =>
+          p.name?.toLowerCase() === data.playlistId.toLowerCase()
+        );
+      }
+      if (!playlist) {
+        throw new Error(`Playlist not found: ${data.playlistId}`);
+      }
+
+      if (data.soundId) {
+        // Set volume for specific sound
+        let sound = playlist.sounds?.get(data.soundId);
+        if (!sound) {
+          sound = playlist.sounds?.find((s: any) =>
+            s.name?.toLowerCase() === data.soundId?.toLowerCase()
+          );
+        }
+        if (!sound) {
+          throw new Error(`Sound not found: ${data.soundId}`);
+        }
+        await sound.update({ volume: data.volume });
+      } else {
+        // Set volume for all sounds in playlist
+        const updates = playlist.sounds?.map((sound: any) => ({
+          _id: sound.id,
+          volume: data.volume,
+        })) || [];
+        await playlist.updateEmbeddedDocuments('PlaylistSound', updates);
+      }
+
+      this.auditLog('setPlaylistVolume', data, 'success');
+
+      return {
+        playlistName: playlist.name,
+        volume: data.volume,
+      };
+    } catch (error) {
+      this.auditLog('setPlaylistVolume', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get currently playing audio
+   */
+  async getPlayingAudio(): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      const playlists = game.playlists?.contents || [];
+      const playing: any[] = [];
+
+      for (const playlist of playlists) {
+        if (playlist.playing) {
+          const playingSounds = playlist.sounds?.filter((s: any) => s.playing) || [];
+          playing.push({
+            playlistId: playlist.id,
+            playlistName: playlist.name,
+            sounds: playingSounds.map((sound: any) => ({
+              id: sound.id,
+              name: sound.name,
+              volume: sound.volume,
+              path: sound.path,
+            })),
+          });
+        }
+      }
+
+      return {
+        playing,
+      };
+    } catch (error) {
+      this.auditLog('getPlayingAudio', {}, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  // ============================================
+  // Rollable Table Tools Methods
+  // ============================================
+
+  /**
+   * List all rollable tables in the world
+   */
+  async listTables(data: { folderFilter?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      let tables = game.tables?.contents || [];
+
+      // Filter by folder if specified
+      if (data?.folderFilter) {
+        tables = tables.filter((table: any) =>
+          table.folder?.name?.toLowerCase().includes(data.folderFilter!.toLowerCase())
+        );
+      }
+
+      const tableData = tables.map((table: any) => ({
+        id: table.id,
+        name: table.name,
+        description: table.description || '',
+        formula: table.formula,
+        replacement: table.replacement,
+        displayRoll: table.displayRoll,
+        folder: table.folder?.name || null,
+        resultCount: table.results?.size || 0,
+      }));
+
+      return {
+        tables: tableData,
+      };
+    } catch (error) {
+      this.auditLog('listTables', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Roll on a rollable table
+   */
+  async rollTable(data: { tableId: string; displayChat?: boolean; rollCount?: number }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      // Find table by ID or name
+      let table = game.tables?.get(data.tableId);
+      if (!table) {
+        table = game.tables?.find((t: any) =>
+          t.name?.toLowerCase() === data.tableId.toLowerCase()
+        );
+      }
+      if (!table) {
+        throw new Error(`Table not found: ${data.tableId}`);
+      }
+
+      const rollCount = data.rollCount || 1;
+      const displayChat = data.displayChat !== false;
+      const results: any[] = [];
+
+      for (let i = 0; i < rollCount; i++) {
+        const roll = await table.roll({ displayChat });
+        if (roll.results && roll.results.length > 0) {
+          for (const result of roll.results) {
+            results.push({
+              text: result.text || result.getChatText?.() || 'Unknown result',
+              img: result.img,
+              documentCollection: result.documentCollection,
+              documentId: result.documentId,
+              drawn: result.drawn,
+              weight: result.weight,
+              range: result.range,
+            });
+          }
+        }
+      }
+
+      this.auditLog('rollTable', data, 'success');
+
+      return {
+        tableName: table.name,
+        results,
+      };
+    } catch (error) {
+      this.auditLog('rollTable', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get all entries in a rollable table
+   */
+  async getTableContents(data: { tableId: string }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      // Find table by ID or name
+      let table = game.tables?.get(data.tableId);
+      if (!table) {
+        table = game.tables?.find((t: any) =>
+          t.name?.toLowerCase() === data.tableId.toLowerCase()
+        );
+      }
+      if (!table) {
+        throw new Error(`Table not found: ${data.tableId}`);
+      }
+
+      const entries = table.results?.map((result: any) => ({
+        id: result.id,
+        text: result.text || '',
+        img: result.img,
+        weight: result.weight,
+        range: result.range,
+        drawn: result.drawn,
+        documentCollection: result.documentCollection,
+        documentId: result.documentId,
+      })) || [];
+
+      return {
+        tableName: table.name,
+        formula: table.formula,
+        entries,
+      };
+    } catch (error) {
+      this.auditLog('getTableContents', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  // ============================================
+  // Macro Tools Methods
+  // ============================================
+
+  /**
+   * List all macros in the world
+   */
+  async listMacros(data: { type?: 'script' | 'chat'; folderFilter?: string }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      let macros = game.macros?.contents || [];
+
+      // Filter by type if specified
+      if (data?.type) {
+        macros = macros.filter((macro: any) => macro.type === data.type);
+      }
+
+      // Filter by folder if specified
+      if (data?.folderFilter) {
+        macros = macros.filter((macro: any) =>
+          macro.folder?.name?.toLowerCase().includes(data.folderFilter!.toLowerCase())
+        );
+      }
+
+      const macroData = macros.map((macro: any) => ({
+        id: macro.id,
+        name: macro.name,
+        type: macro.type,
+        author: macro.author?.name || 'Unknown',
+        img: macro.img,
+        folder: macro.folder?.name || null,
+        scope: macro.scope || 'global',
+      }));
+
+      return {
+        macros: macroData,
+      };
+    } catch (error) {
+      this.auditLog('listMacros', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Execute a macro
+   */
+  async executeMacro(data: { macroId: string; args?: Record<string, any> }): Promise<any> {
+    this.validateFoundryState();
+
+    const permissionCheck = permissionManager.checkWritePermission('modifyScene', {});
+    if (!permissionCheck.allowed) {
+      throw new Error(`${ERROR_MESSAGES.ACCESS_DENIED}: ${permissionCheck.reason}`);
+    }
+
+    try {
+      // Find macro by ID or name
+      let macro = game.macros?.get(data.macroId);
+      if (!macro) {
+        macro = game.macros?.find((m: any) =>
+          m.name?.toLowerCase() === data.macroId.toLowerCase()
+        );
+      }
+      if (!macro) {
+        throw new Error(`Macro not found: ${data.macroId}`);
+      }
+
+      // Execute the macro
+      // Note: args are passed to script macros and can be accessed via `args` variable
+      const result = await macro.execute(data.args || {});
+
+      this.auditLog('executeMacro', { macroId: data.macroId }, 'success');
+
+      return {
+        macroName: macro.name,
+        executed: true,
+        result: result,
+      };
+    } catch (error) {
+      this.auditLog('executeMacro', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
+  /**
+   * Get detailed information about a macro
+   */
+  async getMacroDetails(data: { macroId: string }): Promise<any> {
+    this.validateFoundryState();
+
+    try {
+      // Find macro by ID or name
+      let macro = game.macros?.get(data.macroId);
+      if (!macro) {
+        macro = game.macros?.find((m: any) =>
+          m.name?.toLowerCase() === data.macroId.toLowerCase()
+        );
+      }
+      if (!macro) {
+        throw new Error(`Macro not found: ${data.macroId}`);
+      }
+
+      return {
+        macro: {
+          id: macro.id,
+          name: macro.name,
+          type: macro.type,
+          author: macro.author?.name || 'Unknown',
+          img: macro.img,
+          command: macro.command,
+          scope: macro.scope || 'global',
+          folder: macro.folder?.name || null,
+          ownership: macro.ownership,
+        },
+      };
+    } catch (error) {
+      this.auditLog('getMacroDetails', data, 'failure', error instanceof Error ? error.message : 'Unknown error');
+      throw error;
+    }
+  }
+
 }

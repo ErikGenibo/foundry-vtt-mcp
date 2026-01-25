@@ -38,6 +38,16 @@ import { TileManipulationTools } from './tools/tile-manipulation.js';
 
 import { TokenArtGenerationTools } from './tools/token-art-generation.js';
 
+import { CombatManagementTools } from './tools/combat-management.js';
+
+import { ChatTools } from './tools/chat-tools.js';
+
+import { AudioTools } from './tools/audio-tools.js';
+
+import { TableTools } from './tools/table-tools.js';
+
+import { MacroTools } from './tools/macro-tools.js';
+
 import { GeminiClient } from './gemini-client.js';
 
 import { DSA5CharacterCreator } from './systems/dsa5/character-creator.js';
@@ -1107,6 +1117,31 @@ async function startBackend(): Promise<void> {
     geminiClient
   });
 
+  const combatManagementTools = new CombatManagementTools({
+    foundryClient,
+    logger
+  });
+
+  const chatTools = new ChatTools({
+    foundryClient,
+    logger
+  });
+
+  const audioTools = new AudioTools({
+    foundryClient,
+    logger
+  });
+
+  const tableTools = new TableTools({
+    foundryClient,
+    logger
+  });
+
+  const macroTools = new MacroTools({
+    foundryClient,
+    logger
+  });
+
   // Initialize mapgen-style backend components for map generation
   let mapGenerationJobQueue: any = null;
   let mapGenerationComfyUIClient: any = null;
@@ -1343,6 +1378,16 @@ async function startBackend(): Promise<void> {
     ...mapGenerationTools.getToolDefinitions(),
 
     ...tokenArtGenerationTools.getToolDefinitions(),
+
+    ...combatManagementTools.getToolDefinitions(),
+
+    ...chatTools.getToolDefinitions(),
+
+    ...audioTools.getToolDefinitions(),
+
+    ...tableTools.getToolDefinitions(),
+
+    ...macroTools.getToolDefinitions(),
 
   ];
 
@@ -1709,6 +1754,184 @@ async function startBackend(): Promise<void> {
                 case 'generate-token-art':
 
                   result = await tokenArtGenerationTools.handleGenerateTokenArt(args);
+
+                  break;
+
+                // Combat management tools
+
+                case 'create-combat':
+
+                  result = await combatManagementTools.handleCreateCombat(args);
+
+                  break;
+
+                case 'get-combat-state':
+
+                  result = await combatManagementTools.handleGetCombatState(args);
+
+                  break;
+
+                case 'add-combatants':
+
+                  result = await combatManagementTools.handleAddCombatants(args);
+
+                  break;
+
+                case 'remove-combatants':
+
+                  result = await combatManagementTools.handleRemoveCombatants(args);
+
+                  break;
+
+                case 'roll-initiative':
+
+                  result = await combatManagementTools.handleRollInitiative(args);
+
+                  break;
+
+                case 'set-initiative':
+
+                  result = await combatManagementTools.handleSetInitiative(args);
+
+                  break;
+
+                case 'start-combat':
+
+                  result = await combatManagementTools.handleStartCombat(args);
+
+                  break;
+
+                case 'next-turn':
+
+                  result = await combatManagementTools.handleNextTurn(args);
+
+                  break;
+
+                case 'previous-turn':
+
+                  result = await combatManagementTools.handlePreviousTurn(args);
+
+                  break;
+
+                case 'end-combat':
+
+                  result = await combatManagementTools.handleEndCombat(args);
+
+                  break;
+
+                case 'apply-damage':
+
+                  result = await combatManagementTools.handleApplyDamage(args);
+
+                  break;
+
+                case 'apply-temp-hp':
+
+                  result = await combatManagementTools.handleApplyTempHp(args);
+
+                  break;
+
+                case 'list-combats':
+
+                  result = await combatManagementTools.handleListCombats(args);
+
+                  break;
+
+                case 'set-active-combat':
+
+                  result = await combatManagementTools.handleSetActiveCombat(args);
+
+                  break;
+
+                // Chat tools
+
+                case 'send-chat-message':
+
+                  result = await chatTools.handleSendChatMessage(args);
+
+                  break;
+
+                case 'get-chat-history':
+
+                  result = await chatTools.handleGetChatHistory(args);
+
+                  break;
+
+                case 'narrate':
+
+                  result = await chatTools.handleNarrate(args);
+
+                  break;
+
+                // Audio tools
+
+                case 'list-playlists':
+
+                  result = await audioTools.handleListPlaylists(args);
+
+                  break;
+
+                case 'play-playlist':
+
+                  result = await audioTools.handlePlayPlaylist(args);
+
+                  break;
+
+                case 'stop-playlist':
+
+                  result = await audioTools.handleStopPlaylist(args);
+
+                  break;
+
+                case 'set-playlist-volume':
+
+                  result = await audioTools.handleSetPlaylistVolume(args);
+
+                  break;
+
+                case 'get-playing-audio':
+
+                  result = await audioTools.handleGetPlayingAudio(args);
+
+                  break;
+
+                // Table tools
+
+                case 'list-tables':
+
+                  result = await tableTools.handleListTables(args);
+
+                  break;
+
+                case 'roll-table':
+
+                  result = await tableTools.handleRollTable(args);
+
+                  break;
+
+                case 'get-table-contents':
+
+                  result = await tableTools.handleGetTableContents(args);
+
+                  break;
+
+                // Macro tools
+
+                case 'list-macros':
+
+                  result = await macroTools.handleListMacros(args);
+
+                  break;
+
+                case 'execute-macro':
+
+                  result = await macroTools.handleExecuteMacro(args);
+
+                  break;
+
+                case 'get-macro-details':
+
+                  result = await macroTools.handleGetMacroDetails(args);
 
                   break;
 

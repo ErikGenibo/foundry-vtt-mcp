@@ -116,9 +116,17 @@ export class FoundryConnector {
     this.wss.on('connection', (ws) => {
       this.logger.info('Client connected via WebSocket');
 
+      // Track WebSocket connection immediately on connect
+      // Don't wait for first message - this prevents deadlock where both sides wait
+      if (!this.foundrySocket && !this.activeConnectionType) {
+        this.foundrySocket = ws;
+        this.activeConnectionType = 'websocket';
+        this.logger.info('Foundry module connected via WebSocket (direct) - connection tracked');
+      }
+
       ws.on('close', () => {
         this.logger.info('Client disconnected');
-        if (this.activeConnectionType === 'websocket') {
+        if (this.activeConnectionType === 'websocket' && this.foundrySocket === ws) {
           this.foundrySocket = null;
           this.activeConnectionType = null;
           // Reject all pending queries
@@ -136,13 +144,19 @@ export class FoundryConnector {
 
           // Check if this is WebRTC signaling
           if (message.type === 'webrtc-offer') {
+            // WebRTC signaling - don't treat as regular connection
+            // Reset websocket tracking since this is just for signaling
+            if (this.activeConnectionType === 'websocket' && this.foundrySocket === ws) {
+              this.foundrySocket = null;
+              this.activeConnectionType = null;
+            }
             await this.handleWebRTCOffer(message.offer, ws);
           } else {
-            // Regular WebSocket message
-            if (!this.foundrySocket) {
+            // Regular WebSocket message - ensure connection is tracked
+            if (!this.foundrySocket || this.foundrySocket !== ws) {
               this.foundrySocket = ws;
               this.activeConnectionType = 'websocket';
-              this.logger.info('Foundry module connected via WebSocket (direct)');
+              this.logger.info('Foundry module connection confirmed via message');
             }
             await this.handleMessage(message);
           }
